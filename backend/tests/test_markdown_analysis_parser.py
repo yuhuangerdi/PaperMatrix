@@ -147,6 +147,22 @@ def test_keeps_prose_containing_markdown_urls_out_of_structured_attributes() -> 
     assert candidate.evidence_refs[0].pdf_page_index is None
 
 
+def test_keeps_structured_fields_out_of_the_plain_summary() -> None:
+    markdown = """## 1. 背景
+### 1.5 问题形式化
+- 输入：目标范围与用户反馈
+- 输出：可执行命令建议
+"""
+
+    candidate = parse_note_candidates(PAPER_ID, markdown, [])[0]
+
+    assert candidate.summary == ""
+    assert candidate.attributes == {
+        "输入": "目标范围与用户反馈",
+        "输出": "可执行命令建议",
+    }
+
+
 def test_uses_semantic_heading_blocks_as_balanced_item_boundaries() -> None:
     markdown = """## 2. 现有方案分类和经典文献
 ### 2.1 现有方法分类

@@ -224,8 +224,7 @@ def _block_candidate(
     title = heading
     if re.fullmatch(r"(挑战|创新点)\s*\d+", heading) and prose:
         title = prose[0][:300]
-    summary_parts = [*prose, *[f"{key}: {value}" for key, value in attributes.items()]]
-    summary = "\n".join(summary_parts)
+    summary = "\n".join(prose)
     return _candidate(
         paper_id,
         kind,

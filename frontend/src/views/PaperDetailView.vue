@@ -44,6 +44,12 @@ type DetailTab = 'overview' | 'note' | 'supplement' | 'questions' | 'analysis'
 type SaveState = 'loading' | 'saved' | 'dirty' | 'saving' | 'failed' | 'conflict'
 type NoteMode = 'document' | 'items' | 'favorites'
 type SupplementDraft = { markdown: string; revision: number }
+type StructuredAttributeField = { key: string; value: string }
+type StructuredAttributeRow = {
+  key: string
+  value: string
+  fields: StructuredAttributeField[]
+}
 
 const route = useRoute()
 const paperStore = usePaperStore()
@@ -228,6 +234,54 @@ function displayableAttributes(attributes: Record<string, string>) {
       !key.includes('http://') &&
       !key.includes('https://'),
   )
+}
+
+function structuredAttributeRows(attributes: Record<string, string>): StructuredAttributeRow[] {
+  return displayableAttributes(attributes).map(([key, value]) => ({
+    key,
+    value,
+    fields: value
+      .split(';')
+      .map((part) => part.trim())
+      .flatMap((part) => {
+        const separator = part.includes('：') ? '：' : part.includes(':') ? ':' : null
+        if (!separator) return []
+        const separatorIndex = part.indexOf(separator)
+        const fieldKey = part.slice(0, separatorIndex).trim()
+        const fieldValue = part.slice(separatorIndex + separator.length).trim()
+        return fieldKey && fieldValue ? [{ key: fieldKey, value: fieldValue }] : []
+      }),
+  }))
+}
+
+function structuredTableData(attributes: Record<string, string>): {
+  rows: StructuredAttributeRow[]
+  columns: string[]
+} {
+  const rows = structuredAttributeRows(attributes)
+  return {
+    rows,
+    columns: [...new Set(rows.flatMap((row) => row.fields.map((field) => field.key)))],
+  }
+}
+
+function isStructuredAttributeTable(attributes: Record<string, string>) {
+  const { rows, columns } = structuredTableData(attributes)
+  return rows.length > 1 && columns.length > 0 && rows.every((row) => row.fields.length > 0)
+}
+
+function structuredAttributeValue(row: StructuredAttributeRow, column: string) {
+  return row.fields.find((field) => field.key === column)?.value ?? ''
+}
+
+function isLegacyStructuredSummary(summary: string, attributes: Record<string, string>) {
+  const attributeRows = structuredAttributeRows(attributes)
+  if (!summary.trim() || attributeRows.length === 0) return false
+  const serializedAttributes = attributeRows
+    .map((row) => `${row.key}: ${row.value}`)
+    .join('\n')
+    .replace(/\s+/g, '')
+  return summary.replace(/\s+/g, '') === serializedAttributes
 }
 
 function visibleTags(tags: string[]) {
@@ -1379,8 +1433,8 @@ onBeforeUnmount(() => {
         <div>
           <h2>可比较的分析</h2>
           <p>
-            {{ analysis?.items.length ?? 0 }} 条记录，{{ analysisWithEvidence }} 条已有证据；
-            无证据条目会明确标记。
+            {{ analysis?.items.length ?? 0 }} 条记录，{{ analysisWithEvidence }} 条已有引用记录；
+            待补引用条目会明确标记。
           </p>
         </div>
         <div class="analysis-header-actions">
@@ -1420,8 +1474,8 @@ onBeforeUnmount(() => {
               >
                 {{
                   displayableEvidence(item.evidence_refs).length
-                    ? `${displayableEvidence(item.evidence_refs).length} 条证据`
-                    : '待补证据'
+                    ? `${displayableEvidence(item.evidence_refs).length} 条引用`
+                    : '待补引用'
                 }}
               </span>
             </div>
@@ -1449,13 +1503,50 @@ onBeforeUnmount(() => {
             {{ item.section_title }} · 第 {{ item.section_order }} 条 · 笔记版本
             {{ item.source_note_revision }}
           </p>
-          <p>{{ displayAnalysisText(item.summary) || '尚未填写摘要。' }}</p>
-          <dl v-if="displayableAttributes(item.attributes).length" class="analysis-attributes">
-            <div v-for="[key, value] in displayableAttributes(item.attributes)" :key="key">
-              <dt>{{ key }}</dt>
-              <dd>{{ displayAnalysisText(value) }}</dd>
+          <p v-if="item.summary && !isLegacyStructuredSummary(item.summary, item.attributes)">
+            {{ displayAnalysisText(item.summary) }}
+          </p>
+          <div
+            v-if="structuredAttributeRows(item.attributes).length"
+            class="analysis-structured-content"
+          >
+            <div
+              v-if="isStructuredAttributeTable(item.attributes)"
+              class="analysis-table-wrap"
+              tabindex="0"
+            >
+              <table class="analysis-structured-table">
+                <thead>
+                  <tr>
+                    <th>条目</th>
+                    <th
+                      v-for="column in structuredTableData(item.attributes).columns"
+                      :key="column"
+                    >
+                      {{ column }}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in structuredAttributeRows(item.attributes)" :key="row.key">
+                    <th scope="row">{{ row.key }}</th>
+                    <td
+                      v-for="column in structuredTableData(item.attributes).columns"
+                      :key="column"
+                    >
+                      {{ displayAnalysisText(structuredAttributeValue(row, column)) || '—' }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-          </dl>
+            <dl v-else class="analysis-attributes">
+              <div v-for="row in structuredAttributeRows(item.attributes)" :key="row.key">
+                <dt>{{ row.key }}</dt>
+                <dd>{{ displayAnalysisText(row.value) }}</dd>
+              </div>
+            </dl>
+          </div>
           <div v-if="displayableEvidence(item.evidence_refs).length" class="evidence-list">
             <span
               v-for="{ item: evidence, label } in displayableEvidence(item.evidence_refs)"
