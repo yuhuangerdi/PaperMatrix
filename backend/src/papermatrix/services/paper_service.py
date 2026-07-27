@@ -203,7 +203,8 @@ class PaperService:
     ) -> PaperList:
         projects, papers = self._repositories()
         projects.load(project_id)
-        records = [self._with_current_status(item) for item in papers.list(project_id)]
+        valid_records, invalid_records = papers.list_with_invalid(project_id)
+        records = [self._with_current_status(item) for item in valid_records]
         normalized = query.strip().casefold()
         if normalized:
             records = [
@@ -235,7 +236,14 @@ class PaperService:
         total = len(records)
         start = (page - 1) * page_size
         items = [self._summary(item) for item in records[start : start + page_size]]
-        return PaperList(items=items, total=total, page=page, page_size=page_size)
+        return PaperList(
+            items=items,
+            invalid_items=invalid_records,
+            total=total,
+            invalid_total=len(invalid_records),
+            page=page,
+            page_size=page_size,
+        )
 
     def update_basic_information(
         self,

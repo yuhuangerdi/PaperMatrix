@@ -1152,6 +1152,88 @@ h1 {
   border-radius: 6px;
 }
 
+.invalid-records {
+  margin-bottom: 16px;
+  overflow: hidden;
+  background: var(--danger-soft);
+  border: 1px solid #e5bbb5;
+  border-radius: 6px;
+}
+
+.invalid-records > header {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+}
+
+.invalid-records__icon {
+  display: grid;
+  flex: 0 0 36px;
+  height: 36px;
+  place-items: center;
+  color: var(--danger);
+  background: var(--paper);
+  border-radius: 5px;
+}
+
+.invalid-records h2 {
+  margin: 0 0 4px;
+  color: var(--danger);
+  font-size: 15px;
+}
+
+.invalid-records p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.invalid-records__table-wrap {
+  overflow-x: auto;
+  background: var(--paper);
+  border-top: 1px solid #e5bbb5;
+}
+
+.invalid-records table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+}
+
+.invalid-records th,
+.invalid-records td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 12px;
+  text-align: left;
+}
+
+.invalid-records th {
+  color: var(--ink);
+  background: #fbf7f6;
+  font-size: 11px;
+}
+
+.invalid-records tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.invalid-records td:first-child strong,
+.invalid-records td:first-child small {
+  display: block;
+}
+
+.invalid-records td:first-child strong {
+  color: var(--ink);
+}
+
+.invalid-records td:first-child small {
+  margin-top: 4px;
+  color: #7b8783;
+}
+
 .paper-table {
   width: 100%;
   min-width: 1120px;

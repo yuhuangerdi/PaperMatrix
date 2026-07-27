@@ -4,6 +4,7 @@ import { apiGet, apiRequest } from '@/api/client'
 import type {
   AnalysisItemInput,
   CandidateImportResult,
+  InvalidPaperRecord,
   NoteItemDocument,
   NoteItemUpdateResult,
   NoteParsePreview,
@@ -21,7 +22,9 @@ import type {
 export const usePaperStore = defineStore('papers', {
   state: () => ({
     items: [] as PaperSummary[],
+    invalidItems: [] as InvalidPaperRecord[],
     total: 0,
+    invalidTotal: 0,
     loading: false,
     scanResult: null as ScanResult | null,
     availableGroups: [] as string[],
@@ -50,7 +53,9 @@ export const usePaperStore = defineStore('papers', {
         if (options.group) params.set('group', options.group)
         const result = await apiGet<PaperList>(`/projects/${projectId}/papers?${params}`)
         this.items = result.items
+        this.invalidItems = result.invalid_items ?? []
         this.total = result.total
+        this.invalidTotal = result.invalid_total ?? this.invalidItems.length
         if (!options.group) {
           this.availableGroups = [
             ...new Set([
@@ -284,8 +289,16 @@ export const usePaperStore = defineStore('papers', {
         `/projects/${projectId}/papers/${paperId}?confirm_metadata_only=true`,
         { method: 'DELETE' },
       )
+      const removedValid = this.items.some((item) => item.paper_id === paperId)
+      const removedInvalid = this.invalidItems.some((item) => item.paper_id === paperId)
       this.items = this.items.filter((item) => item.paper_id !== paperId)
-      this.total = Math.max(0, this.total - 1)
+      this.invalidItems = this.invalidItems.filter((item) => item.paper_id !== paperId)
+      if (removedValid) {
+        this.total = Math.max(0, this.total - 1)
+      }
+      if (removedInvalid) {
+        this.invalidTotal = Math.max(0, this.invalidTotal - 1)
+      }
     },
   },
 })

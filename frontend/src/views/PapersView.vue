@@ -5,6 +5,7 @@ import {
   FileText,
   FolderSearch,
   BookOpen,
+  CircleAlert,
   Link,
   ListFilter,
   Pencil,
@@ -20,7 +21,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import { ApiError } from '@/api/client'
 import { usePaperStore } from '@/stores/papers'
 import { useProjectStore } from '@/stores/projects'
-import type { PaperSourceStatus, PaperSummary } from '@/types/api'
+import type { InvalidPaperRecord, PaperSourceStatus, PaperSummary } from '@/types/api'
 
 type ImportMode = 'upload' | 'path' | 'scan' | 'manual'
 
@@ -260,6 +261,20 @@ async function removePaper(paper: PaperSummary) {
   }
 }
 
+async function removeInvalidPaper(paper: InvalidPaperRecord) {
+  const confirmed = window.confirm(
+    `删除无法读取的论文记录“${paper.title}”吗？将删除 PaperMatrix 中对应的元数据和笔记，但不会删除原 PDF。此操作不会尝试修复或改写旧记录。`,
+  )
+  if (!confirmed) return
+  try {
+    await paperStore.remove(projectId.value, paper.paper_id)
+    successMessage.value = '不兼容的论文记录已移除，原 PDF 未受影响。'
+    await projectStore.loadList(true)
+  } catch (error: unknown) {
+    errorMessage.value = error instanceof ApiError ? error.message : '移除记录失败。'
+  }
+}
+
 watch([sourceStatus, groupFilter, sort], () => void load())
 let queryTimer = 0
 watch(query, () => {
@@ -342,7 +357,61 @@ onMounted(() => {
     {{ successMessage }}
   </div>
 
-  <section v-if="!paperStore.loading && paperStore.items.length === 0" class="empty-state">
+  <section
+    v-if="paperStore.invalidItems.length"
+    class="invalid-records"
+    aria-labelledby="invalid-records-title"
+  >
+    <header>
+      <div class="invalid-records__icon"><CircleAlert :size="20" /></div>
+      <div>
+        <h2 id="invalid-records-title">无法读取的论文记录（{{ paperStore.invalidTotal }}）</h2>
+        <p>
+          这些记录不符合当前 Paper Schema，未混入文献矩阵。你可以删除 PaperMatrix 元数据和笔记；原
+          PDF 不会被删除。
+        </p>
+      </div>
+    </header>
+    <div class="invalid-records__table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>记录</th>
+            <th>Schema 版本</th>
+            <th>原因</th>
+            <th><span class="sr-only">操作</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="paper in paperStore.invalidItems" :key="paper.paper_id">
+            <td>
+              <strong>{{ paper.title }}</strong>
+              <small>{{ paper.paper_id }}</small>
+            </td>
+            <td>{{ paper.schema_version ?? '无法识别' }}</td>
+            <td>{{ paper.reason }}</td>
+            <td>
+              <button
+                class="button button--danger button--compact"
+                type="button"
+                :aria-label="`删除不兼容记录 ${paper.title}`"
+                @click="removeInvalidPaper(paper)"
+              >
+                <Trash2 :size="15" /> 删除记录
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section
+    v-if="
+      !paperStore.loading && paperStore.items.length === 0 && paperStore.invalidItems.length === 0
+    "
+    class="empty-state"
+  >
     <div class="empty-icon"><FileText :size="26" /></div>
     <h2>{{ query || sourceStatus ? '没有匹配的论文' : '项目中还没有论文记录' }}</h2>
     <p>
@@ -362,7 +431,7 @@ onMounted(() => {
     </button>
   </section>
 
-  <div v-else class="paper-table-wrap">
+  <div v-if="paperStore.items.length" class="paper-table-wrap">
     <table class="paper-table">
       <thead>
         <tr>

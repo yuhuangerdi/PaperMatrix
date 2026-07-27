@@ -257,12 +257,17 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [items, total, page, page_size]
+                required:
+                  [items, invalid_items, total, invalid_total, page, page_size]
                 properties:
                   items:
                     type: array
                     items: { $ref: "#/components/schemas/PaperSummary" }
+                  invalid_items:
+                    type: array
+                    items: { $ref: "#/components/schemas/InvalidPaperRecord" }
                   total: { type: integer }
+                  invalid_total: { type: integer }
                   page: { type: integer }
                   page_size: { type: integer }
   /projects/{project_id}/papers/import:
@@ -937,6 +942,14 @@ components:
         one_sentence_summary: { type: string }
         updated_at: { type: string, format: date-time }
         revision: { type: integer, minimum: 1 }
+    InvalidPaperRecord:
+      type: object
+      required: [paper_id, title, schema_version, reason]
+      properties:
+        paper_id: { type: string, format: uuid }
+        title: { type: string }
+        schema_version: { type: [integer, "null"] }
+        reason: { type: string }
     Paper:
       type: object
       required:

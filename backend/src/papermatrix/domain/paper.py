@@ -259,8 +259,17 @@ class PaperSummary(BaseModel):
     revision: int
 
 
+class InvalidPaperRecord(BaseModel):
+    paper_id: UUID
+    title: str
+    schema_version: int | None
+    reason: str
+
+
 class PaperList(BaseModel):
     items: list[PaperSummary]
+    invalid_items: list[InvalidPaperRecord] = Field(default_factory=list)
     total: int
+    invalid_total: int = 0
     page: int
     page_size: int

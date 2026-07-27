@@ -244,3 +244,64 @@ def test_direct_path_link_rejects_outside_root_and_large_upload(tmp_path: Path) 
     )
     assert too_large.status_code == 413
     assert too_large.json()["error"]["code"] == "PM-PAPER-005"
+
+
+def test_invalid_paper_record_is_listed_and_can_be_deleted_without_touching_pdf(
+    tmp_path: Path,
+) -> None:
+    client, workspace_root, paper_root, project_id = initialized_client(tmp_path)
+    source = paper_root / "legacy.pdf"
+    make_pdf(source, title="Legacy source")
+    original_bytes = source.read_bytes()
+    valid = client.post(
+        f"/api/v1/projects/{project_id}/papers/manual",
+        json={"title": "Valid record"},
+    )
+    assert valid.status_code == 201
+
+    invalid_id = "44444444-4444-4444-8444-444444444444"
+    papers_dir = workspace_root / "projects" / project_id / "papers"
+    invalid_path = papers_dir / f"{invalid_id}.yaml"
+    invalid_path.write_text(
+        f"""schema_version: 5
+paper_id: {invalid_id}
+project_id: {project_id}
+source:
+  path: {source}
+bibliography:
+  title: Legacy incompatible record
+revision: 1
+""",
+        encoding="utf-8",
+    )
+    note_path = workspace_root / "projects" / project_id / "notes" / f"{invalid_id}.md"
+    note_path.write_text("# Legacy note\n", encoding="utf-8")
+
+    listed = client.get(f"/api/v1/projects/{project_id}/papers")
+
+    assert listed.status_code == 200
+    payload = listed.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["title"] == "Valid record"
+    assert payload["invalid_total"] == 1
+    assert payload["invalid_items"] == [
+        {
+            "paper_id": invalid_id,
+            "title": "Legacy incompatible record",
+            "schema_version": 5,
+            "reason": "记录内容不符合当前 Paper Schema",
+        }
+    ]
+
+    removed = client.delete(
+        f"/api/v1/projects/{project_id}/papers/{invalid_id}?confirm_metadata_only=true"
+    )
+
+    assert removed.status_code == 200
+    assert removed.json()["source_pdf_untouched"] is True
+    assert not invalid_path.exists()
+    assert not note_path.exists()
+    assert source.read_bytes() == original_bytes
+    relisted = client.get(f"/api/v1/projects/{project_id}/papers").json()
+    assert relisted["total"] == 1
+    assert relisted["invalid_total"] == 0

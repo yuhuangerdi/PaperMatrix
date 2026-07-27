@@ -66,6 +66,8 @@
 - `POST /projects/{project_id}/papers/{paper_id}/relink`
 - `DELETE /projects/{project_id}/papers/{paper_id}`
 
+论文列表响应中的 `items` 只包含可通过迁移和当前 Schema 校验的记录；`invalid_items` 单独返回无法读取的记录 ID、可识别标题、Schema 版本和原因。无效记录不参与搜索、筛选、排序或正常论文总数，但必须始终可见，并复用仅删除 PaperMatrix 元数据的确认删除端点。不得在列表读取时自动改写无效文件。
+
 ### 笔记
 
 - `GET /projects/{project_id}/papers/{paper_id}/note`

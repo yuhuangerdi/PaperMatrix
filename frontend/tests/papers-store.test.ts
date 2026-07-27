@@ -51,6 +51,51 @@ describe('paper store', () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('source_status=unlinked')
   })
 
+  it('keeps incompatible records visible and removes them separately', async () => {
+    const invalidRecord = {
+      paper_id: '44444444-4444-4444-8444-444444444444',
+      title: 'Legacy incompatible record',
+      schema_version: 5,
+      reason: '记录内容不符合当前 Paper Schema',
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            items: [],
+            invalid_items: [invalidRecord],
+            total: 0,
+            invalid_total: 1,
+            page: 1,
+            page_size: 200,
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            source_pdf_untouched: true,
+            removed_files: [`${invalidRecord.paper_id}.yaml`],
+          }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = usePaperStore()
+
+    await store.load('project-id')
+    expect(store.invalidItems).toEqual([invalidRecord])
+    expect(store.invalidTotal).toBe(1)
+
+    await store.remove('project-id', invalidRecord.paper_id)
+
+    expect(store.invalidItems).toEqual([])
+    expect(store.invalidTotal).toBe(0)
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('confirm_metadata_only=true')
+  })
+
   it('uploads a PDF as multipart form data', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

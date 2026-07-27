@@ -121,9 +121,18 @@ export interface Paper extends Omit<
 
 export interface PaperList {
   items: PaperSummary[]
+  invalid_items: InvalidPaperRecord[]
   total: number
+  invalid_total: number
   page: number
   page_size: number
+}
+
+export interface InvalidPaperRecord {
+  paper_id: string
+  title: string
+  schema_version: number | null
+  reason: string
 }
 
 export interface PaperNote {
