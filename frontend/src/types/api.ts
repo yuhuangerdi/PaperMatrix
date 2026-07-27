@@ -196,8 +196,10 @@ export type WritingUse =
   | 'FUTURE'
 
 export type AnalysisItemKind =
+  | 'background'
   | 'research_problem'
   | 'scenario'
+  | 'related_work'
   | 'method'
   | 'method_component'
   | 'mechanism'
@@ -263,6 +265,7 @@ export interface NoteAnalysisCandidate {
   source_line_start: number
   source_line_end: number
   duplicate_item_id: string | null
+  superseded_item_ids: string[]
 }
 
 export interface NoteParsePreview {
@@ -279,6 +282,7 @@ export interface CandidateImportResult {
   imported_items: AnalysisItem[]
   synchronized_items: AnalysisItem[]
   skipped_candidate_ids: string[]
+  superseded_item_ids: string[]
 }
 
 export interface NoteItemSource {

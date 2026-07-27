@@ -8,6 +8,7 @@ from papermatrix.services.markdown_analysis_parser import (
     add_item_anchors,
     note_item_fragment,
     parse_note_candidates,
+    remove_item_anchors,
     replace_note_item_fragment,
 )
 
@@ -56,10 +57,12 @@ def test_parses_filled_sections_tables_and_evidence_deterministically() -> None:
         "challenge",
         "finding",
     ]
-    assert first[1].title == "恢复规划器"
-    assert first[1].attributes["处理过程"] == "重建计划"
+    assert first[1].title == "框架组成"
+    assert "处理过程: 重建计划" in first[1].attributes["恢复规划器"]
     assert first[1].evidence_refs[0].page_label == "6"
     assert first[3].evidence_refs[0].table == "表 3"
+    assert first[3].title == "主要实验结果"
+    assert "关键数据: +12%" in first[3].attributes["主实验"]
     assert first[0].section_key == "section-1"
     assert first[1].section_key == "section-3"
     assert first[1].section_order == 1
@@ -124,7 +127,7 @@ def test_ignores_unfilled_template_placeholders_and_marks_duplicates() -> None:
     assert reparsed[0].duplicate_item_id == item.item_id
 
 
-def test_uses_heading_blocks_and_table_rows_as_balanced_item_boundaries() -> None:
+def test_uses_semantic_heading_blocks_as_balanced_item_boundaries() -> None:
     markdown = """## 2. 现有方案分类和经典文献
 ### 2.1 现有方法分类
 | 类别 | 核心思路 | 优点 | 缺点 |
@@ -179,8 +182,8 @@ def test_uses_heading_blocks_and_table_rows_as_balanced_item_boundaries() -> Non
         "contribution",
         "condition",
     ]
-    assert candidates[0].title == "状态恢复"
-    assert candidates[0].attributes["核心思路"] == "保存执行状态后重试"
+    assert candidates[0].title == "现有方法分类"
+    assert "核心思路: 保存执行状态后重试" in candidates[0].attributes["状态恢复"]
     assert candidates[1].summary.count("\n") == 1
     assert candidates[5].attributes == {
         "输入": "规范化任务",
@@ -192,7 +195,7 @@ def test_uses_heading_blocks_and_table_rows_as_balanced_item_boundaries() -> Non
     assert len({candidate.source_section for candidate in candidates}) == len(candidates)
 
 
-def test_anchors_preserve_content_and_stabilize_heading_and_table_item_ids() -> None:
+def test_anchors_preserve_content_and_stabilize_heading_block_item_ids() -> None:
     markdown = """# Example
 
 ## 3. 本文解决思路和整体框架
@@ -208,7 +211,7 @@ def test_anchors_preserve_content_and_stabilize_heading_and_table_item_ids() -> 
     anchored = add_item_anchors(markdown, before)
 
     assert "失败后重新规划。" in anchored
-    assert "| <!-- papermatrix:item:" in anchored
+    assert anchored.count("\n<!-- papermatrix:item:") == 2
     assert anchored.count("papermatrix:item:") == 2
 
     after = parse_note_candidates(PAPER_ID, anchored, [])
@@ -233,8 +236,117 @@ def test_anchors_preserve_content_and_stabilize_heading_and_table_item_ids() -> 
     table_changed = replace_note_item_fragment(
         anchored,
         table.candidate_id,
-        "| 恢复器 | 保存并重放状态 |",
+        """### 3.3 框架组成
+| 模块 | 作用 |
+|---|---|
+| 恢复器 | 保存并重放状态 |""",
     )
     assert f"<!-- papermatrix:item:{table.candidate_id} -->" in table_changed
-    assert "| 恢复器 | 保存并重放状态 |" not in anchored
+    assert "| 恢复器 | 保存并重放状态 |" in table_changed
+    assert "| 恢复器 | 重建计划 |" in anchored
     assert parse_note_candidates(PAPER_ID, table_changed, [])[1].candidate_id == table.candidate_id
+
+
+def test_parses_all_filled_semantic_blocks_and_keeps_each_table_together() -> None:
+    markdown = """## 1. 背景：解决什么问题？为什么重要？
+### 1.1 研究背景
+长链任务需要持续维护环境状态。
+
+### 1.3 为什么重要
+状态丢失会导致错误操作和重复执行。
+
+## 2. 现有方案分类和经典文献
+### 2.1 现有方法分类
+| 类别 | 核心思路 | 优点 | 缺点 |
+|---|---|---|---|
+| 规则工具 | 固定工作流 | 可复现 | 泛化较弱 |
+| Agent | 动态规划 | 适应性强 | 状态可能漂移 |
+
+### 2.2 代表性顶会顶刊文献（3–5篇）
+#### 文献 A
+- 主要思路：使用规划器维护任务。
+- 主要缺点：缺少状态验证。
+
+#### 文献 B
+- 主要思路：压缩工具输出。
+- 主要缺点：可能丢失关键细节。
+
+#### 文献 C
+- 主要思路：检索领域知识。
+- 主要缺点：依赖检索质量。
+
+## 7. 实验与复现性
+### 7.5 主要实验结果
+| 实验 | 结论 | 关键数据 | 图表位置 |
+|---|---|---|---|
+| 主实验 | 完成率提升 | 228.6% | 表 3 |
+| 效率/成本实验 | 待补充 | 待回看 PDF | 待回看 PDF |
+
+228.6% 是相对提升，不是绝对成功率。
+"""
+    candidates = parse_note_candidates(PAPER_ID, markdown, [])
+
+    assert [candidate.title for candidate in candidates] == [
+        "研究背景",
+        "为什么重要",
+        "现有方法分类",
+        "文献 A",
+        "文献 B",
+        "文献 C",
+        "主要实验结果",
+    ]
+    assert [candidate.kind for candidate in candidates] == [
+        "background",
+        "background",
+        "method",
+        "related_work",
+        "related_work",
+        "related_work",
+        "finding",
+    ]
+    table = candidates[2]
+    assert table.attributes.keys() == {"规则工具", "Agent"}
+    assert table.source_line_end - table.source_line_start == 5
+    result = candidates[-1]
+    assert result.attributes.keys() == {"主实验"}
+    assert "228.6% 是相对提升，不是绝对成功率。" in result.summary
+    assert "效率/成本实验" not in result.summary
+
+
+def test_legacy_table_row_anchors_are_reported_for_confirmed_consolidation() -> None:
+    row_a = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    row_b = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+    now = datetime.now(UTC)
+    existing = [
+        AnalysisItem(
+            item_id=item_id,
+            kind="method",
+            title=title,
+            summary="旧版逐行投影",
+            source_anchor=f"papermatrix:item:{item_id}",
+            source_note_revision=2,
+            source_fingerprint="a" * 64,
+            created_at=now,
+            updated_at=now,
+        )
+        for item_id, title in ((row_a, "规则工具"), (row_b, "Agent"))
+    ]
+    markdown = f"""## 2. 现有方案分类和经典文献
+### 2.1 现有方法分类
+| 类别 | 核心思路 | 优点 | 缺点 |
+|---|---|---|---|
+| <!-- papermatrix:item:{row_a} --> 规则工具 | 固定工作流 | 可复现 | 泛化较弱 |
+| <!-- papermatrix:item:{row_b} --> Agent | 动态规划 | 适应性强 | 状态可能漂移 |
+"""
+    candidate = parse_note_candidates(PAPER_ID, markdown, existing)[0]
+
+    assert candidate.title == "现有方法分类"
+    assert candidate.superseded_item_ids == [row_a, row_b]
+    consolidated = add_item_anchors(
+        remove_item_anchors(markdown, set(candidate.superseded_item_ids)),
+        [candidate],
+    )
+    assert consolidated.count("papermatrix:item:") == 1
+    assert f"papermatrix:item:{candidate.candidate_id}" in consolidated
+    assert f"papermatrix:item:{row_a}" not in consolidated
+    assert f"papermatrix:item:{row_b}" not in consolidated

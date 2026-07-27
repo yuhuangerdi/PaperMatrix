@@ -37,6 +37,7 @@ from papermatrix.services.markdown_analysis_parser import (
     add_item_anchors,
     note_item_fragment,
     parse_note_candidates,
+    remove_item_anchors,
     replace_note_item_fragment,
 )
 from papermatrix.services.workspace_service import WorkspaceService
@@ -152,6 +153,13 @@ class PaperContentService:
             note.markdown,
             paper.structured_summary.items,
         )
+        superseded_count = len(
+            {item_id for candidate in candidates for item_id in candidate.superseded_item_ids}
+        )
+        if superseded_count:
+            warnings.append(
+                f"检测到 {superseded_count} 个旧版表格行条目; 确认整表候选后将合并为标题块条目。"
+            )
         if not candidates and not warnings:
             warnings.append("没有找到已填写的结构化内容, 请检查模板标题和内容。")
         return NoteParsePreview(
@@ -178,9 +186,19 @@ class PaperContentService:
             warnings.append("当前显示尚未保存的默认模板。请先填写并保存笔记后再审阅分析候选。")
         elif not candidates:
             warnings.append("没有找到已填写的结构化内容。")
+        superseded_ids = {
+            item_id for candidate in candidates for item_id in candidate.superseded_item_ids
+        }
+        if superseded_ids:
+            warnings.append(
+                f"检测到 {len(superseded_ids)} 个旧版表格行条目; "
+                "确认整表候选后将保留人工标签、写作用途和证据并完成合并。"
+            )
         by_id = {candidate.candidate_id: candidate for candidate in candidates}
         sources: list[NoteItemSource] = []
         for item in paper.structured_summary.items:
+            if item.item_id in superseded_ids:
+                continue
             candidate = by_id.get(item.item_id)
             if candidate is None:
                 sources.append(
@@ -385,7 +403,16 @@ class PaperContentService:
                 skipped.append(candidate_id)
                 continue
             selected_candidates.append(candidate)
-        anchored_markdown = add_item_anchors(note.markdown, selected_candidates)
+        superseded_ids = {
+            item_id
+            for candidate in selected_candidates
+            for item_id in candidate.superseded_item_ids
+        }
+        superseded_items = [
+            item for item in paper.structured_summary.items if item.item_id in superseded_ids
+        ]
+        consolidated_markdown = remove_item_anchors(note.markdown, superseded_ids)
+        anchored_markdown = add_item_anchors(consolidated_markdown, selected_candidates)
         if anchored_markdown != note.markdown:
             note = content.save_note(
                 project_id,
@@ -399,25 +426,15 @@ class PaperContentService:
                 expected_revision=expected_note_revision,
             )
         for candidate in selected_candidates:
-            now = datetime.now(UTC)
             imported.append(
-                AnalysisItem(
-                    item_id=candidate.candidate_id,
-                    kind=candidate.kind,
-                    title=candidate.title,
-                    summary=candidate.summary,
-                    section_key=candidate.section_key,
-                    section_title=candidate.section_title,
-                    section_order=candidate.section_order,
-                    source_anchor=candidate.source_anchor,
+                self._item_from_new_candidate(
+                    candidate,
                     source_note_revision=note.revision,
-                    source_fingerprint=candidate.source_fingerprint,
-                    attributes=candidate.attributes,
-                    evidence_refs=candidate.evidence_refs,
-                    tags=["笔记解析"],
-                    writing_uses=[],
-                    created_at=now,
-                    updated_at=now,
+                    superseded_items=[
+                        item
+                        for item in superseded_items
+                        if item.item_id in candidate.superseded_item_ids
+                    ],
                 )
             )
         synchronized_items = [
@@ -429,6 +446,7 @@ class PaperContentService:
             existing_items = [
                 synchronized_by_id.get(item.item_id, item)
                 for item in paper.structured_summary.items
+                if item.item_id not in superseded_ids
             ]
             updated = paper.model_copy(
                 update={
@@ -446,6 +464,59 @@ class PaperContentService:
             imported_items=imported,
             synchronized_items=synchronized_items,
             skipped_candidate_ids=skipped,
+            superseded_item_ids=list(superseded_ids),
+        )
+
+    @staticmethod
+    def _item_from_new_candidate(
+        candidate: NoteAnalysisCandidate,
+        *,
+        source_note_revision: int,
+        superseded_items: list[AnalysisItem],
+    ) -> AnalysisItem:
+        now = datetime.now(UTC)
+        evidence = list(candidate.evidence_refs)
+        evidence_keys = {item.model_dump_json() for item in evidence}
+        for item in superseded_items:
+            for reference in item.evidence_refs:
+                key = reference.model_dump_json()
+                if key not in evidence_keys:
+                    evidence.append(reference)
+                    evidence_keys.add(key)
+        tags = list(
+            dict.fromkeys(
+                [
+                    "笔记解析",
+                    *(tag for item in superseded_items for tag in item.tags),
+                ]
+            )
+        )
+        writing_uses = list(
+            dict.fromkeys(
+                writing_use for item in superseded_items for writing_use in item.writing_uses
+            )
+        )
+        created_at = min(
+            (item.created_at for item in superseded_items),
+            default=now,
+        )
+        return AnalysisItem(
+            item_id=candidate.candidate_id,
+            kind=candidate.kind,
+            title=candidate.title,
+            summary=candidate.summary,
+            section_key=candidate.section_key,
+            section_title=candidate.section_title,
+            section_order=candidate.section_order,
+            source_anchor=candidate.source_anchor,
+            source_note_revision=source_note_revision,
+            source_fingerprint=candidate.source_fingerprint,
+            attributes=candidate.attributes,
+            evidence_refs=evidence,
+            tags=tags,
+            writing_uses=writing_uses,
+            created_at=created_at,
+            updated_at=now,
         )
 
     @staticmethod

@@ -994,7 +994,7 @@ components:
           revision,
         ]
       properties:
-        schema_version: { type: integer, const: 6 }
+        schema_version: { type: integer, const: 7 }
         paper_id: { type: string, format: uuid }
         project_id: { type: string, format: uuid }
         source:
@@ -1189,8 +1189,10 @@ components:
           type: string
           enum:
             [
+              background,
               research_problem,
               scenario,
+              related_work,
               method,
               method_component,
               mechanism,
@@ -1260,8 +1262,10 @@ components:
           type: string
           enum:
             [
+              background,
               research_problem,
               scenario,
+              related_work,
               method,
               method_component,
               mechanism,
@@ -1332,6 +1336,7 @@ components:
           source_line_start,
           source_line_end,
           duplicate_item_id,
+          superseded_item_ids,
         ]
       properties:
         candidate_id: { type: string, format: uuid }
@@ -1339,8 +1344,10 @@ components:
           type: string
           enum:
             [
+              background,
               research_problem,
               scenario,
+              related_work,
               method,
               method_component,
               mechanism,
@@ -1378,6 +1385,9 @@ components:
           oneOf:
             - { type: string, format: uuid }
             - { type: "null" }
+        superseded_item_ids:
+          type: array
+          items: { type: string, format: uuid }
     NoteParsePreview:
       type: object
       required: [paper_id, note_revision, paper_revision, candidates, warnings]
@@ -1405,7 +1415,14 @@ components:
     CandidateImportResult:
       type: object
       required:
-        [analysis, note, imported_items, synchronized_items, skipped_candidate_ids]
+        [
+          analysis,
+          note,
+          imported_items,
+          synchronized_items,
+          skipped_candidate_ids,
+          superseded_item_ids,
+        ]
       properties:
         analysis: { $ref: "#/components/schemas/PaperAnalysisDocument" }
         note: { $ref: "#/components/schemas/PaperNote" }
@@ -1416,6 +1433,9 @@ components:
           type: array
           items: { $ref: "#/components/schemas/AnalysisItem" }
         skipped_candidate_ids:
+          type: array
+          items: { type: string, format: uuid }
+        superseded_item_ids:
           type: array
           items: { type: string, format: uuid }
     NoteItemSource:

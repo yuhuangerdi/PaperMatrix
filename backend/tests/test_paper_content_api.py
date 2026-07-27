@@ -125,6 +125,102 @@ def test_saved_note_is_automatically_parsed_by_note_items_endpoint(tmp_path: Pat
     assert payload["items"] == []
 
 
+def test_confirming_grouped_table_candidate_consolidates_legacy_row_items(
+    tmp_path: Path,
+) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    analysis_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/analysis"
+    note_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/note"
+    first = client.post(
+        f"{analysis_endpoint}/items",
+        json={
+            "kind": "method",
+            "title": "规则工具",
+            "summary": "旧版逐行投影",
+            "attributes": {},
+            "evidence_refs": [
+                {
+                    "paper_id": paper_id,
+                    "page_label": "6",
+                    "pdf_page_index": 7,
+                    "section": "Related Work",
+                    "figure": None,
+                    "table": "Table 1",
+                    "locator_note": "方法分类",
+                    "source_item_id": None,
+                }
+            ],
+            "tags": ["经典方法"],
+            "writing_uses": ["RELATED"],
+            "expected_revision": 1,
+        },
+    ).json()["items"][0]
+    second = client.post(
+        f"{analysis_endpoint}/items",
+        json={
+            "kind": "method",
+            "title": "Agent",
+            "summary": "旧版逐行投影",
+            "attributes": {},
+            "evidence_refs": [],
+            "tags": ["动态规划"],
+            "writing_uses": ["METHOD"],
+            "expected_revision": 2,
+        },
+    ).json()["items"][1]
+    markdown = f"""## 2. 现有方案分类和经典文献
+### 2.1 现有方法分类
+| 类别 | 核心思路 | 优点 | 缺点 |
+|---|---|---|---|
+| <!-- papermatrix:item:{first["item_id"]} --> 规则工具 | 固定工作流 | 可复现 | 泛化较弱 |
+| <!-- papermatrix:item:{second["item_id"]} --> Agent | 动态规划 | 适应性强 | 状态可能漂移 |
+"""
+    saved = client.put(
+        note_endpoint,
+        json={"markdown": markdown, "expected_revision": 0},
+    )
+    assert saved.status_code == 200
+
+    document = client.get(f"{note_endpoint}/items").json()
+    assert document["pending_candidate_count"] == 1
+    assert document["items"] == []
+    candidate = document["candidates"][0]
+    assert candidate["title"] == "现有方法分类"
+    assert set(candidate["superseded_item_ids"]) == {
+        first["item_id"],
+        second["item_id"],
+    }
+    assert "旧版表格行条目" in document["warnings"][0]
+
+    imported = client.post(
+        f"{analysis_endpoint}/import-candidates",
+        json={
+            "candidate_ids": [candidate["candidate_id"]],
+            "expected_note_revision": 1,
+            "expected_paper_revision": 3,
+        },
+    )
+    assert imported.status_code == 200
+    result = imported.json()
+    assert set(result["superseded_item_ids"]) == {
+        first["item_id"],
+        second["item_id"],
+    }
+    assert len(result["analysis"]["items"]) == 1
+    grouped = result["analysis"]["items"][0]
+    assert grouped["title"] == "现有方法分类"
+    assert grouped["tags"] == ["笔记解析", "经典方法", "动态规划"]
+    assert grouped["writing_uses"] == ["RELATED", "METHOD"]
+    assert grouped["evidence_refs"][0]["table"] == "Table 1"
+    assert result["note"]["markdown"].count("papermatrix:item:") == 1
+    assert first["item_id"] not in result["note"]["markdown"]
+    assert second["item_id"] not in result["note"]["markdown"]
+
+    refreshed = client.get(f"{note_endpoint}/items").json()
+    assert refreshed["pending_candidate_count"] == 0
+    assert refreshed["items"][0]["sync_status"] == "synced"
+
+
 def test_supplement_is_saved_independently_with_revision_conflicts(tmp_path: Path) -> None:
     client, workspace_root, project_id, paper_id = initialized_paper(tmp_path)
     endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/note/supplement"

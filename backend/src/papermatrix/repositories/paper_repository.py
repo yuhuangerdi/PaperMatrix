@@ -155,7 +155,7 @@ class PaperRepository:
             if isinstance(bibliography, dict) and isinstance(bibliography.get("title"), str)
             else None
         )
-        if normalized_version is not None and normalized_version not in {1, 2, 3, 4, 5, 6}:
+        if normalized_version is not None and normalized_version not in {1, 2, 3, 4, 5, 6, 7}:
             reason = f"Schema 版本 {normalized_version} 暂不支持"
         elif raw is None:
             reason = "记录文件无法读取"

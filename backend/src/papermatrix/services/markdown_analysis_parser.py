@@ -12,7 +12,7 @@ from papermatrix.domain.paper import AnalysisItem, AnalysisItemKind
 from papermatrix.domain.paper_content import EvidenceReference
 
 _HEADING = re.compile(r"^(#{2,4})\s+(.+?)\s*$")
-_LIST_ITEM = re.compile(r"^\s*(?:[-*]|\d+\.)\s*(.*?)\s*$")
+_LIST_ITEM = re.compile(r"^\s*(?:[-*]\s*|\d+\.(?:\s+|$))(.*?)\s*$")
 _NUMBERING = re.compile(r"^\d+(?:\.\d+)*(?:[.、]\s*|\s+)?")
 _SECTION_NUMBER = re.compile(r"^(\d+)(?:[.、]\s*|\s+)")
 _ITEM_ANCHOR = re.compile(r"<!--\s*papermatrix:item:([0-9a-fA-F-]{36})\s*-->")
@@ -36,7 +36,13 @@ _PLACEHOLDER_VALUES = {
     "开源 / 闭源",
     "可构建 / 难构建",
     "低 / 中 / 高",
+    "待补充",
+    "待填写",
+    "待查询",
+    "待核对",
+    "待回看 pdf",
 }
+_PLACEHOLDER_PREFIXES = ("待补充", "待填写", "待查询", "待核对", "待回看")
 
 
 @dataclass(frozen=True)
@@ -65,12 +71,7 @@ def parse_note_candidates(
         kind = _kind_for_heading(block.heading)
         if kind is None:
             continue
-        if any(
-            heading in block.heading for heading in ("现有方法分类", "框架组成", "主要实验结果")
-        ):
-            candidates.extend(_table_candidates(paper_id, block, kind))
-            continue
-        candidate = _block_candidate(paper_id, block, kind)
+        candidate = _block_candidate(paper_id, block, kind, existing_items)
         if candidate is not None:
             candidates.append(candidate)
 
@@ -104,11 +105,9 @@ def _blocks(markdown: str) -> list[_Block]:
     for position, (index, level, heading) in enumerate(headings):
         if level == 2:
             current_section_key, current_section_title = _section_identity(heading)
-        end = len(lines)
-        for next_index, next_level, _ in headings[position + 1 :]:
-            if next_level <= level:
-                end = next_index
-                break
+        end = headings[position + 1][0] if position + 1 < len(headings) else len(lines)
+        if end > index + 1 and _ITEM_ANCHOR.fullmatch(lines[end - 1].strip()):
+            end -= 1
         blocks.append(
             _Block(
                 heading=heading,
@@ -126,7 +125,10 @@ def _blocks(markdown: str) -> list[_Block]:
 
 def _kind_for_heading(heading: str) -> AnalysisItemKind | None:
     cleaned = _NUMBERING.sub("", heading).strip()
+    if re.fullmatch(r"文献\s*[A-Z0-9一二三四五六七八九十]+", cleaned, re.IGNORECASE):
+        return "related_work"
     rules: list[tuple[tuple[str, ...], AnalysisItemKind]] = [
+        (("研究背景", "为什么重要", "问题的重要性"), "background"),
         (("具体问题", "问题形式化"), "research_problem"),
         (("实际应用场景",), "scenario"),
         (("现有方法分类", "本文切入点", "核心思路", "整体框架", "大致流程"), "method"),
@@ -174,6 +176,7 @@ def _block_candidate(
     paper_id: UUID,
     block: _Block,
     kind: AnalysisItemKind,
+    existing_items: list[AnalysisItem],
 ) -> NoteAnalysisCandidate | None:
     attributes: dict[str, str] = {}
     prose: list[str] = []
@@ -196,6 +199,7 @@ def _block_candidate(
                 attributes[key.strip()] = content.strip()
             continue
         prose.append(value)
+    attributes.update(_table_attributes(block.lines))
     if not attributes and not prose:
         return None
     heading = _NUMBERING.sub("", block.heading).strip()
@@ -216,45 +220,46 @@ def _block_candidate(
         block.anchor_id,
         block.start,
         block.end,
+        _superseded_item_ids(block, existing_items),
     )
 
 
-def _table_candidates(
-    paper_id: UUID,
-    block: _Block,
-    kind: AnalysisItemKind,
-) -> list[NoteAnalysisCandidate]:
-    rows = _table_rows(block.lines)
+def _table_attributes(lines: list[str]) -> dict[str, str]:
+    rows = _table_rows(lines)
     if len(rows) < 2:
-        return []
+        return {}
     headers = rows[0][1]
-    result: list[NoteAnalysisCandidate] = []
-    for offset, values in rows[1:]:
-        marker_id, title = _strip_anchor(values[0] if values else "")
+    result: dict[str, str] = {}
+    for _, values in rows[1:]:
+        _, title = _strip_anchor(values[0] if values else "")
         details = {
             headers[index]: value
             for index, value in enumerate(values[1:], start=1)
             if index < len(headers) and _meaningful(value)
         }
-        if not title.strip() or (title.casefold() in _PLACEHOLDER_VALUES and not details):
+        if not title.strip() or not details:
             continue
-        summary = "\n".join(f"{key}: {value}" for key, value in details.items())
-        result.append(
-            _candidate(
-                paper_id,
-                kind,
-                title,
-                summary,
-                details,
-                block.heading,
-                block.section_key,
-                block.section_title,
-                marker_id,
-                block.start + offset,
-                block.start + offset,
-            )
-        )
+        key = title
+        suffix = 2
+        while key in result:
+            key = f"{title} ({suffix})"
+            suffix += 1
+        result[key] = "; ".join(f"{header}: {value}" for header, value in details.items())
     return result
+
+
+def _superseded_item_ids(
+    block: _Block,
+    existing_items: list[AnalysisItem],
+) -> list[UUID]:
+    existing_ids = {item.item_id for item in existing_items}
+    ids: list[UUID] = []
+    for line in block.lines:
+        for match in _ITEM_ANCHOR.finditer(line):
+            item_id = UUID(match.group(1))
+            if item_id in existing_ids and item_id != block.anchor_id and item_id not in ids:
+                ids.append(item_id)
+    return ids
 
 
 def _parse_evidence(blocks: list[_Block], paper_id: UUID) -> list[tuple[str, EvidenceReference]]:
@@ -301,7 +306,9 @@ def _attach_evidence(
     evidence: list[tuple[str, EvidenceReference]],
 ) -> NoteAnalysisCandidate:
     kind_terms: dict[AnalysisItemKind, tuple[str, ...]] = {
+        "background": ("背景", "动机", "重要"),
         "research_problem": ("背景", "问题"),
+        "related_work": ("相关", "文献", "方法"),
         "method": ("方法",),
         "method_component": ("方法",),
         "mechanism": ("方法",),
@@ -335,6 +342,7 @@ def _candidate(
     explicit_id: UUID | None,
     line_start: int,
     line_end: int,
+    superseded_item_ids: list[UUID] | None = None,
 ) -> NoteAnalysisCandidate:
     candidate_id = explicit_id or uuid5(
         NAMESPACE_URL,
@@ -354,6 +362,7 @@ def _candidate(
         source_section=source_section,
         source_line_start=line_start,
         source_line_end=max(line_start, line_end),
+        superseded_item_ids=superseded_item_ids or [],
     )
 
 
@@ -373,6 +382,8 @@ def _table_rows(lines: list[str]) -> list[tuple[int, list[str]]]:
 def _meaningful(value: str) -> bool:
     normalized = value.strip().casefold()
     if normalized in _PLACEHOLDER_VALUES:
+        return False
+    if normalized.startswith(_PLACEHOLDER_PREFIXES):
         return False
     return bool(normalized.strip("_ -\uff1a:"))
 
@@ -397,6 +408,27 @@ def add_item_anchors(
         if index > 0 and _ITEM_ANCHOR.fullmatch(lines[index - 1].strip()):
             continue
         lines.insert(index, marker)
+    suffix = "\n" if markdown.endswith("\n") else ""
+    return "\n".join(lines) + suffix
+
+
+def remove_item_anchors(markdown: str, item_ids: set[UUID]) -> str:
+    """Remove legacy heading or table-row markers selected for explicit consolidation."""
+    if not item_ids:
+        return markdown
+    markers = {f"papermatrix:item:{item_id}" for item_id in item_ids}
+    lines: list[str] = []
+    for raw in markdown.splitlines():
+        matches = list(_ITEM_ANCHOR.finditer(raw))
+        if not matches:
+            lines.append(raw)
+            continue
+        updated = raw
+        for match in reversed(matches):
+            if f"papermatrix:item:{match.group(1)}" in markers:
+                updated = f"{updated[: match.start()]}{updated[match.end() :]}"
+        if updated.strip():
+            lines.append(updated)
     suffix = "\n" if markdown.endswith("\n") else ""
     return "\n".join(lines) + suffix
 
@@ -496,11 +528,10 @@ def replace_note_item_fragment(
         replacement_heading = _HEADING.match(replacement_lines[0]) if replacement_lines else None
         if heading is None or replacement_heading is None:
             return markdown
-        level = len(heading.group(1))
         end = len(lines)
         for index in range(heading_index + 1, len(lines)):
             match = _HEADING.match(lines[index])
-            if match and len(match.group(1)) <= level:
+            if match:
                 end = index
                 break
         lines[heading_index:end] = replacement_lines

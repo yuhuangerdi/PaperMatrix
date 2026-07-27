@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "paper_id", "project_id", "source", "bibliography", "organization", "structured_summary", "created_at", "updated_at", "revision"],
   "properties": {
-    "schema_version": {"const": 6},
+    "schema_version": {"const": 7},
     "paper_id": {"type": "string", "format": "uuid"},
     "project_id": {"type": "string", "format": "uuid"},
     "source": {
@@ -90,7 +90,7 @@
               "item_id": {"type": "string", "format": "uuid"},
               "kind": {
                 "type": "string",
-                "enum": ["research_problem", "scenario", "method", "method_component", "mechanism", "challenge", "innovation", "contribution", "experiment", "finding", "author_limitation", "reviewer_limitation", "condition"]
+                "enum": ["background", "research_problem", "scenario", "related_work", "method", "method_component", "mechanism", "challenge", "innovation", "contribution", "experiment", "finding", "author_limitation", "reviewer_limitation", "condition"]
               },
               "title": {"type": "string", "minLength": 1, "maxLength": 300},
               "summary": {"type": "string", "maxLength": 20000},

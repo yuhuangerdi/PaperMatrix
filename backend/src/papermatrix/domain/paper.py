@@ -24,8 +24,10 @@ WritingUse = Literal[
     "FUTURE",
 ]
 AnalysisItemKind = Literal[
+    "background",
     "research_problem",
     "scenario",
+    "related_work",
     "method",
     "method_component",
     "mechanism",
@@ -145,7 +147,7 @@ class StructuredSummary(BaseModel):
 
 
 class Paper(BaseModel):
-    schema_version: Literal[6] = 6
+    schema_version: Literal[7] = 7
     paper_id: UUID
     project_id: UUID
     source: PaperSource

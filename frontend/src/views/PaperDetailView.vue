@@ -565,8 +565,10 @@ async function deleteQuestion(item: ReadingQuestion) {
 
 function analysisKindLabel(kind: AnalysisItem['kind']) {
   return {
+    background: '研究背景',
     research_problem: '研究问题',
     scenario: '适用场景',
+    related_work: '经典文献',
     method: '方法路线',
     method_component: '方法组件',
     mechanism: '关键机制',
@@ -697,7 +699,10 @@ async function importNoteCandidates(candidateIds: string[]) {
       .then(() => true)
       .catch(() => false)
     if (refreshed) {
-      successMessage.value = `已导入 ${result.imported_items.length} 条、同步 ${result.synchronized_items.length} 条分析候选。`
+      const consolidated = result.superseded_item_ids.length
+        ? `，合并 ${result.superseded_item_ids.length} 个旧版表格行条目`
+        : ''
+      successMessage.value = `已导入 ${result.imported_items.length} 条、同步 ${result.synchronized_items.length} 条分析候选${consolidated}。`
     } else {
       noteMode.value = 'document'
       errorMessage.value = '候选分析已保存，但条目视图刷新失败，请重新加载页面。'

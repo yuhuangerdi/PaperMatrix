@@ -21,8 +21,10 @@ const emit = defineEmits<{
 }>()
 
 const kindOptions: Array<{ value: AnalysisItemKind; label: string }> = [
+  { value: 'background', label: '研究背景' },
   { value: 'research_problem', label: '研究问题' },
   { value: 'scenario', label: '适用场景' },
+  { value: 'related_work', label: '经典文献' },
   { value: 'method', label: '方法路线' },
   { value: 'method_component', label: '方法组件' },
   { value: 'mechanism', label: '关键机制' },

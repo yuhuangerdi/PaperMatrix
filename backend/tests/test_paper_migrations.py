@@ -25,7 +25,7 @@ def test_migrates_v1_source_and_optional_bibliography_fields() -> None:
         }
     )
 
-    assert migrated["schema_version"] == 6
+    assert migrated["schema_version"] == 7
     assert migrated["source"]["original_filename"] == "example.pdf"
     assert migrated["source"]["sha256"] is None
     assert migrated["bibliography"]["doi"] is None
@@ -34,7 +34,7 @@ def test_migrates_v1_source_and_optional_bibliography_fields() -> None:
     assert migrated["structured_summary"]["items"] == []
 
 
-def test_repository_saves_an_edited_v2_record_as_v3(tmp_path: Path) -> None:
+def test_repository_saves_an_edited_v2_record_as_current_schema(tmp_path: Path) -> None:
     project_id = UUID("5d3351ce-408c-4c36-b11f-bb8a19f72000")
     paper_id = UUID("4abf5d15-1692-44e1-8073-27cedfa92500")
     paper_path = tmp_path / "projects" / str(project_id) / "papers" / f"{paper_id}.yaml"
@@ -119,7 +119,7 @@ def test_repository_saves_an_edited_v2_record_as_v3(tmp_path: Path) -> None:
         expected_revision=1,
     )
 
-    assert saved.schema_version == 6
+    assert saved.schema_version == 7
     assert repository.load(project_id, paper_id).organization.group == "核心文献"
 
 
@@ -140,7 +140,7 @@ def test_migrates_v3_analysis_without_losing_legacy_summary() -> None:
         }
     )
 
-    assert migrated["schema_version"] == 6
+    assert migrated["schema_version"] == 7
     assert migrated["structured_summary"]["background"] == {"problem": "Legacy problem"}
     assert migrated["structured_summary"]["items"] == []
 
@@ -162,7 +162,7 @@ def test_migrates_v4_items_with_empty_note_source_metadata() -> None:
     )
 
     item = migrated["structured_summary"]["items"][0]
-    assert migrated["schema_version"] == 6
+    assert migrated["schema_version"] == 7
     assert item["title"] == "Legacy method"
     assert item["section_key"] is None
     assert item["source_note_revision"] is None
@@ -185,6 +185,32 @@ def test_migrates_v5_item_source_without_losing_anchor() -> None:
     )
 
     item = migrated["structured_summary"]["items"][0]
-    assert migrated["schema_version"] == 6
+    assert migrated["schema_version"] == 7
     assert item["source_anchor"].endswith("11111111-1111-4111-8111-111111111111")
     assert item["source_fingerprint"] is None
+
+
+def test_migrates_v6_to_v7_without_changing_existing_item_content() -> None:
+    source = {
+        "schema_version": 6,
+        "structured_summary": {
+            "items": [
+                {
+                    "item_id": "11111111-1111-4111-8111-111111111111",
+                    "kind": "method",
+                    "title": "Existing method",
+                    "source_anchor": "papermatrix:item:11111111-1111-4111-8111-111111111111",
+                    "source_fingerprint": "a" * 64,
+                }
+            ]
+        },
+    }
+
+    migrated = migrate_paper(source)
+
+    assert source["schema_version"] == 6
+    assert migrated["schema_version"] == 7
+    item = migrated["structured_summary"]["items"][0]
+    assert item["kind"] == "method"
+    assert item["title"] == "Existing method"
+    assert item["source_fingerprint"] == "a" * 64

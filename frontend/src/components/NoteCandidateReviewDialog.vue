@@ -38,8 +38,10 @@ function toggleAll() {
 
 function kindLabel(kind: AnalysisItemKind) {
   return {
+    background: '研究背景',
     research_problem: '研究问题',
     scenario: '适用场景',
+    related_work: '经典文献',
     method: '方法路线',
     method_component: '方法组件',
     mechanism: '关键机制',
@@ -117,6 +119,9 @@ function kindLabel(kind: AnalysisItemKind) {
                 <span v-else-if="candidate.sync_status === 'modified'" class="review-state">
                   正文已修改
                 </span>
+                <span v-else-if="candidate.superseded_item_ids.length" class="review-state">
+                  合并 {{ candidate.superseded_item_ids.length }} 个旧条目
+                </span>
                 <span v-else-if="candidate.evidence_refs.length" class="evidence-state">
                   {{ candidate.evidence_refs.length }} 条证据
                 </span>
@@ -136,7 +141,7 @@ function kindLabel(kind: AnalysisItemKind) {
       </div>
 
       <footer>
-        <span>新增项会写入稳定标记；正文修改只有确认后才同步到论文 YAML。</span>
+        <span>表格随所属标题块整体保存；旧版逐行条目只在确认后合并。</span>
         <div>
           <button
             class="button button--secondary"

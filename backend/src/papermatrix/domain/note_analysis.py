@@ -28,6 +28,7 @@ class NoteAnalysisCandidate(BaseModel):
     source_line_start: int = Field(ge=1)
     source_line_end: int = Field(ge=1)
     duplicate_item_id: UUID | None = None
+    superseded_item_ids: list[UUID] = Field(default_factory=list)
 
 
 class NoteParsePreview(BaseModel):
@@ -44,6 +45,7 @@ class CandidateImportResult(BaseModel):
     imported_items: list[AnalysisItem]
     synchronized_items: list[AnalysisItem]
     skipped_candidate_ids: list[UUID]
+    superseded_item_ids: list[UUID] = Field(default_factory=list)
 
 
 class NoteItemSource(BaseModel):

@@ -272,15 +272,23 @@ describe('paper store', () => {
             imported_items: [],
             synchronized_items: [],
             skipped_candidate_ids: [],
+            superseded_item_ids: ['legacy-row-id'],
           }),
       })
     vi.stubGlobal('fetch', fetchMock)
     const store = usePaperStore()
 
     await store.previewNoteAnalysis('project-id', 'paper-id')
-    await store.importNoteCandidates('project-id', 'paper-id', ['candidate-id'], 3, 2)
+    const result = await store.importNoteCandidates(
+      'project-id',
+      'paper-id',
+      ['candidate-id'],
+      3,
+      2,
+    )
 
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: 'POST' })
+    expect(result.superseded_item_ids).toEqual(['legacy-row-id'])
     const request = fetchMock.mock.calls[1]?.[1] as RequestInit
     expect(JSON.parse(String(request.body))).toEqual({
       candidate_ids: ['candidate-id'],
