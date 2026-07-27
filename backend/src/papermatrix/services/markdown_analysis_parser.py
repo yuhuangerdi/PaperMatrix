@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from hashlib import sha256
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from papermatrix.domain.note_analysis import NoteAnalysisCandidate
@@ -72,7 +73,13 @@ def parse_note_candidates(
             candidate.model_copy(update={"section_order": section_counts[candidate.section_key]})
         )
     candidates = [_attach_evidence(candidate, evidence) for candidate in ordered]
-    return [_mark_duplicate(candidate, existing_items) for candidate in candidates]
+    fingerprinted = [
+        candidate.model_copy(
+            update={"source_fingerprint": _source_fingerprint(markdown, candidate)}
+        )
+        for candidate in candidates
+    ]
+    return [_mark_duplicate(candidate, existing_items) for candidate in fingerprinted]
 
 
 def _blocks(markdown: str) -> list[_Block]:
@@ -311,6 +318,7 @@ def _candidate(
         section_title=section_title,
         section_order=1,
         source_anchor=f"papermatrix:item:{candidate_id}",
+        source_fingerprint="0" * 64,
         source_section=source_section,
         source_line_start=line_start,
         source_line_end=max(line_start, line_end),
@@ -386,7 +394,7 @@ def _mark_duplicate(
 ) -> NoteAnalysisCandidate:
     duplicate = next(
         (
-            item.item_id
+            item
             for item in existing_items
             if item.item_id == candidate.candidate_id
             or (
@@ -397,8 +405,78 @@ def _mark_duplicate(
         ),
         None,
     )
-    return candidate.model_copy(update={"duplicate_item_id": duplicate})
+    if duplicate is None:
+        return candidate
+    if duplicate.item_id != candidate.candidate_id:
+        return candidate.model_copy(
+            update={
+                "duplicate_item_id": duplicate.item_id,
+                "sync_status": "unchanged",
+            }
+        )
+    status = (
+        "unchanged" if duplicate.source_fingerprint == candidate.source_fingerprint else "modified"
+    )
+    return candidate.model_copy(
+        update={"duplicate_item_id": duplicate.item_id, "sync_status": status}
+    )
 
 
 def _normalize(value: str) -> str:
     return " ".join(value.casefold().split())
+
+
+def note_item_fragment(markdown: str, candidate: NoteAnalysisCandidate) -> str:
+    """Return the exact editable Markdown fragment without its stable marker."""
+    lines = markdown.splitlines()
+    start = candidate.source_line_start - 1
+    end = candidate.source_line_end
+    if start < 0 or end > len(lines):
+        return ""
+    fragment = "\n".join(lines[start:end])
+    return _ITEM_ANCHOR.sub("", fragment).strip()
+
+
+def replace_note_item_fragment(
+    markdown: str,
+    item_id: UUID,
+    replacement: str,
+) -> str:
+    """Replace one anchored fragment while preserving unrelated Markdown."""
+    marker = f"<!-- papermatrix:item:{item_id} -->"
+    lines = markdown.splitlines()
+    marker_index = next((index for index, line in enumerate(lines) if marker in line), None)
+    if marker_index is None:
+        return markdown
+
+    if lines[marker_index].lstrip().startswith("|"):
+        if "\n" in replacement.strip() or not replacement.strip().startswith("|"):
+            return markdown
+        cleaned = _ITEM_ANCHOR.sub("", replacement.strip())
+        pipe = cleaned.find("|")
+        lines[marker_index] = f"{cleaned[: pipe + 1]} {marker}{cleaned[pipe + 1 :]}"
+    else:
+        heading_index = marker_index + 1
+        if heading_index >= len(lines):
+            return markdown
+        heading = _HEADING.match(lines[heading_index])
+        replacement_lines = replacement.strip().splitlines()
+        replacement_heading = _HEADING.match(replacement_lines[0]) if replacement_lines else None
+        if heading is None or replacement_heading is None:
+            return markdown
+        level = len(heading.group(1))
+        end = len(lines)
+        for index in range(heading_index + 1, len(lines)):
+            match = _HEADING.match(lines[index])
+            if match and len(match.group(1)) <= level:
+                end = index
+                break
+        lines[heading_index:end] = replacement_lines
+
+    suffix = "\n" if markdown.endswith("\n") else ""
+    return "\n".join(lines) + suffix
+
+
+def _source_fingerprint(markdown: str, candidate: NoteAnalysisCandidate) -> str:
+    fragment = note_item_fragment(markdown, candidate)
+    return sha256(fragment.encode("utf-8")).hexdigest()

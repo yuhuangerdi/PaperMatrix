@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -21,6 +22,8 @@ class NoteAnalysisCandidate(BaseModel):
     section_title: str = Field(max_length=300)
     section_order: int = Field(ge=1)
     source_anchor: str = Field(max_length=80)
+    source_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    sync_status: Literal["new", "unchanged", "modified"] = "new"
     source_section: str = Field(max_length=300)
     source_line_start: int = Field(ge=1)
     source_line_end: int = Field(ge=1)
@@ -39,4 +42,31 @@ class CandidateImportResult(BaseModel):
     analysis: PaperAnalysisDocument
     note: PaperNote
     imported_items: list[AnalysisItem]
+    synchronized_items: list[AnalysisItem]
     skipped_candidate_ids: list[UUID]
+
+
+class NoteItemSource(BaseModel):
+    item_id: UUID
+    kind: AnalysisItemKind
+    title: str
+    section_key: str | None
+    section_title: str | None
+    section_order: int | None
+    markdown: str
+    source_fingerprint: str | None
+    sync_status: Literal["synced", "review_required", "missing"]
+
+
+class NoteItemDocument(BaseModel):
+    paper_id: UUID
+    note_revision: int = Field(ge=0)
+    paper_revision: int = Field(ge=1)
+    items: list[NoteItemSource]
+    pending_candidate_count: int = Field(ge=0)
+
+
+class NoteItemUpdateResult(BaseModel):
+    note: PaperNote
+    analysis: PaperAnalysisDocument
+    item: AnalysisItem

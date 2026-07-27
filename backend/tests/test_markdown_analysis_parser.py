@@ -4,7 +4,12 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from papermatrix.domain.paper import AnalysisItem
-from papermatrix.services.markdown_analysis_parser import add_item_anchors, parse_note_candidates
+from papermatrix.services.markdown_analysis_parser import (
+    add_item_anchors,
+    note_item_fragment,
+    parse_note_candidates,
+    replace_note_item_fragment,
+)
 
 PAPER_ID = UUID("11111111-1111-4111-8111-111111111111")
 
@@ -84,6 +89,8 @@ def test_ignores_unfilled_template_placeholders_and_marks_duplicates() -> None:
             "section_title",
             "section_order",
             "source_anchor",
+            "source_fingerprint",
+            "sync_status",
             "source_section",
             "source_line_start",
             "source_line_end",
@@ -125,3 +132,26 @@ def test_anchors_preserve_content_and_stabilize_heading_and_table_item_ids() -> 
     assert [item.candidate_id for item in after] == [item.candidate_id for item in before]
     assert [item.title for item in after] == [item.title for item in before]
     assert add_item_anchors(anchored, after) == anchored
+
+    method = after[0]
+    changed = replace_note_item_fragment(
+        anchored,
+        method.candidate_id,
+        "### 3.1 核心思路\n使用检查点恢复失败任务。",
+    )
+    assert "使用检查点恢复失败任务。" in changed
+    assert "### 3.3 框架组成" in changed
+    reparsed = parse_note_candidates(PAPER_ID, changed, [])
+    assert reparsed[0].candidate_id == method.candidate_id
+    assert reparsed[0].source_fingerprint != method.source_fingerprint
+    assert note_item_fragment(changed, reparsed[0]).endswith("使用检查点恢复失败任务。")
+
+    table = after[1]
+    table_changed = replace_note_item_fragment(
+        anchored,
+        table.candidate_id,
+        "| 恢复器 | 保存并重放状态 |",
+    )
+    assert f"<!-- papermatrix:item:{table.candidate_id} -->" in table_changed
+    assert "| 恢复器 | 保存并重放状态 |" not in anchored
+    assert parse_note_candidates(PAPER_ID, table_changed, [])[1].candidate_id == table.candidate_id

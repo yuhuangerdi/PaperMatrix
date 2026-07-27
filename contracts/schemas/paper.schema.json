@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "paper_id", "project_id", "source", "bibliography", "organization", "structured_summary", "created_at", "updated_at", "revision"],
   "properties": {
-    "schema_version": {"const": 5},
+    "schema_version": {"const": 6},
     "paper_id": {"type": "string", "format": "uuid"},
     "project_id": {"type": "string", "format": "uuid"},
     "source": {
@@ -85,7 +85,7 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["item_id", "kind", "title", "summary", "section_key", "section_title", "section_order", "source_anchor", "source_note_revision", "attributes", "evidence_refs", "tags", "writing_uses", "created_at", "updated_at"],
+            "required": ["item_id", "kind", "title", "summary", "section_key", "section_title", "section_order", "source_anchor", "source_note_revision", "source_fingerprint", "attributes", "evidence_refs", "tags", "writing_uses", "created_at", "updated_at"],
             "properties": {
               "item_id": {"type": "string", "format": "uuid"},
               "kind": {
@@ -99,6 +99,7 @@
               "section_order": {"type": ["integer", "null"], "minimum": 1},
               "source_anchor": {"type": ["string", "null"], "maxLength": 80},
               "source_note_revision": {"type": ["integer", "null"], "minimum": 1},
+              "source_fingerprint": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
               "attributes": {
                 "type": "object",
                 "additionalProperties": {"type": "string"}

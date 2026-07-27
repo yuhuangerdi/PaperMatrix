@@ -8,11 +8,20 @@ from uuid import UUID
 
 from papermatrix.core.errors import (
     AnalysisCandidateSelectionError,
+    AnalysisItemNotFoundError,
+    AnalysisItemSourceError,
     AnalysisPreviewStaleError,
     QuestionNotFoundError,
 )
 from papermatrix.core.schema_registry import SchemaRegistry
-from papermatrix.domain.note_analysis import CandidateImportResult, NoteParsePreview
+from papermatrix.domain.note_analysis import (
+    CandidateImportResult,
+    NoteAnalysisCandidate,
+    NoteItemDocument,
+    NoteItemSource,
+    NoteItemUpdateResult,
+    NoteParsePreview,
+)
 from papermatrix.domain.paper import AnalysisItem, Paper, PaperAnalysisDocument
 from papermatrix.domain.paper_content import (
     EvidenceReference,
@@ -24,7 +33,12 @@ from papermatrix.domain.paper_content import (
 from papermatrix.repositories.paper_content_repository import PaperContentRepository
 from papermatrix.repositories.paper_repository import PaperRepository
 from papermatrix.repositories.project_repository import ProjectRepository
-from papermatrix.services.markdown_analysis_parser import add_item_anchors, parse_note_candidates
+from papermatrix.services.markdown_analysis_parser import (
+    add_item_anchors,
+    note_item_fragment,
+    parse_note_candidates,
+    replace_note_item_fragment,
+)
 from papermatrix.services.workspace_service import WorkspaceService
 
 
@@ -115,6 +129,165 @@ class PaperContentService:
             warnings=warnings,
         )
 
+    def get_note_items(self, project_id: UUID, paper_id: UUID) -> NoteItemDocument:
+        projects, papers, content = self._repositories()
+        projects.load(project_id)
+        paper = papers.load(project_id, paper_id)
+        note = content.load_note(project_id, paper_id) or self.get_note(project_id, paper_id)
+        candidates = parse_note_candidates(
+            paper_id,
+            note.markdown,
+            paper.structured_summary.items,
+        )
+        by_id = {candidate.candidate_id: candidate for candidate in candidates}
+        sources: list[NoteItemSource] = []
+        for item in paper.structured_summary.items:
+            candidate = by_id.get(item.item_id)
+            if candidate is None:
+                sources.append(
+                    NoteItemSource(
+                        item_id=item.item_id,
+                        kind=item.kind,
+                        title=item.title,
+                        section_key=item.section_key,
+                        section_title=item.section_title,
+                        section_order=item.section_order,
+                        markdown="",
+                        source_fingerprint=item.source_fingerprint,
+                        sync_status="missing",
+                    )
+                )
+                continue
+            sources.append(
+                NoteItemSource(
+                    item_id=item.item_id,
+                    kind=item.kind,
+                    title=item.title,
+                    section_key=item.section_key,
+                    section_title=item.section_title,
+                    section_order=item.section_order,
+                    markdown=note_item_fragment(note.markdown, candidate),
+                    source_fingerprint=candidate.source_fingerprint,
+                    sync_status=(
+                        "synced"
+                        if item.source_fingerprint == candidate.source_fingerprint
+                        else "review_required"
+                    ),
+                )
+            )
+        pending = sum(candidate.sync_status != "unchanged" for candidate in candidates)
+        return NoteItemDocument(
+            paper_id=paper_id,
+            note_revision=note.revision,
+            paper_revision=paper.revision,
+            items=sources,
+            pending_candidate_count=pending,
+        )
+
+    def update_note_item(
+        self,
+        project_id: UUID,
+        paper_id: UUID,
+        item_id: UUID,
+        *,
+        markdown: str,
+        expected_note_revision: int,
+        expected_paper_revision: int,
+        expected_source_fingerprint: str,
+    ) -> NoteItemUpdateResult:
+        projects, papers, content = self._repositories()
+        projects.load(project_id)
+        paper = papers.load(project_id, paper_id)
+        if paper.revision != expected_paper_revision:
+            raise AnalysisPreviewStaleError(
+                resource="paper",
+                expected=expected_paper_revision,
+                actual=paper.revision,
+            )
+        existing = next(
+            (item for item in paper.structured_summary.items if item.item_id == item_id),
+            None,
+        )
+        if existing is None:
+            raise AnalysisItemNotFoundError()
+        note = content.load_note(project_id, paper_id)
+        if note is None:
+            raise AnalysisItemSourceError("结构化笔记尚未保存, 无法编辑条目来源。")
+        if note.revision != expected_note_revision:
+            raise AnalysisPreviewStaleError(
+                resource="note",
+                expected=expected_note_revision,
+                actual=note.revision,
+            )
+        candidates = parse_note_candidates(
+            paper_id,
+            note.markdown,
+            paper.structured_summary.items,
+        )
+        current = next(
+            (candidate for candidate in candidates if candidate.candidate_id == item_id),
+            None,
+        )
+        if current is None:
+            raise AnalysisItemSourceError()
+        if current.source_fingerprint != expected_source_fingerprint:
+            raise AnalysisPreviewStaleError(
+                resource="item_source",
+                expected=expected_note_revision,
+                actual=note.revision,
+            )
+
+        updated_markdown = replace_note_item_fragment(note.markdown, item_id, markdown)
+        if updated_markdown == note.markdown and markdown.strip() != note_item_fragment(
+            note.markdown, current
+        ):
+            raise AnalysisItemSourceError()
+        parsed = parse_note_candidates(
+            paper_id,
+            updated_markdown,
+            paper.structured_summary.items,
+        )
+        updated_candidate = next(
+            (candidate for candidate in parsed if candidate.candidate_id == item_id),
+            None,
+        )
+        if updated_candidate is None or updated_candidate.kind != existing.kind:
+            raise AnalysisItemSourceError("条目修改后无法保留原类型和稳定 ID, 未写入任何文件。")
+
+        updated_note = content.save_note(
+            project_id,
+            note.model_copy(
+                update={
+                    "markdown": updated_markdown,
+                    "revision": note.revision + 1,
+                    "updated_at": datetime.now(UTC),
+                }
+            ),
+            expected_revision=expected_note_revision,
+        )
+        updated_item = self._item_from_candidate(
+            existing,
+            updated_candidate,
+            source_note_revision=updated_note.revision,
+        )
+        items = [
+            updated_item if item.item_id == item_id else item
+            for item in paper.structured_summary.items
+        ]
+        updated_paper = paper.model_copy(
+            update={
+                "structured_summary": paper.structured_summary.model_copy(update={"items": items}),
+                "revision": paper.revision + 1,
+                "updated_at": datetime.now(UTC),
+            }
+        )
+        updated_paper = papers.save(updated_paper, expected_revision=expected_paper_revision)
+        return NoteItemUpdateResult(
+            note=updated_note,
+            analysis=self._analysis_document(updated_paper),
+            item=updated_item,
+        )
+
     def import_note_candidates(
         self,
         project_id: UUID,
@@ -157,8 +330,16 @@ class PaperContentService:
         skipped: list[UUID] = []
         existing_ids = {item.item_id for item in paper.structured_summary.items}
         selected_candidates = []
+        synchronized: list[tuple[AnalysisItem, NoteAnalysisCandidate]] = []
         for candidate_id in dict.fromkeys(candidate_ids):
             candidate = by_id[candidate_id]
+            existing = next(
+                (item for item in paper.structured_summary.items if item.item_id == candidate_id),
+                None,
+            )
+            if existing is not None and candidate.sync_status == "modified":
+                synchronized.append((existing, candidate))
+                continue
             if candidate.duplicate_item_id is not None or candidate_id in existing_ids:
                 skipped.append(candidate_id)
                 continue
@@ -189,6 +370,7 @@ class PaperContentService:
                     section_order=candidate.section_order,
                     source_anchor=candidate.source_anchor,
                     source_note_revision=note.revision,
+                    source_fingerprint=candidate.source_fingerprint,
                     attributes=candidate.attributes,
                     evidence_refs=candidate.evidence_refs,
                     tags=["笔记解析"],
@@ -197,11 +379,20 @@ class PaperContentService:
                     updated_at=now,
                 )
             )
-        if imported:
+        synchronized_items = [
+            self._item_from_candidate(existing, candidate, source_note_revision=note.revision)
+            for existing, candidate in synchronized
+        ]
+        if imported or synchronized_items:
+            synchronized_by_id = {item.item_id: item for item in synchronized_items}
+            existing_items = [
+                synchronized_by_id.get(item.item_id, item)
+                for item in paper.structured_summary.items
+            ]
             updated = paper.model_copy(
                 update={
                     "structured_summary": paper.structured_summary.model_copy(
-                        update={"items": [*paper.structured_summary.items, *imported]}
+                        update={"items": [*existing_items, *imported]}
                     ),
                     "revision": paper.revision + 1,
                     "updated_at": datetime.now(UTC),
@@ -212,7 +403,32 @@ class PaperContentService:
             analysis=self._analysis_document(paper),
             note=note,
             imported_items=imported,
+            synchronized_items=synchronized_items,
             skipped_candidate_ids=skipped,
+        )
+
+    @staticmethod
+    def _item_from_candidate(
+        existing: AnalysisItem,
+        candidate: NoteAnalysisCandidate,
+        *,
+        source_note_revision: int,
+    ) -> AnalysisItem:
+        return existing.model_copy(
+            update={
+                "kind": candidate.kind,
+                "title": candidate.title,
+                "summary": candidate.summary,
+                "section_key": candidate.section_key,
+                "section_title": candidate.section_title,
+                "section_order": candidate.section_order,
+                "source_anchor": candidate.source_anchor,
+                "source_note_revision": source_note_revision,
+                "source_fingerprint": candidate.source_fingerprint,
+                "attributes": candidate.attributes,
+                "evidence_refs": candidate.evidence_refs,
+                "updated_at": datetime.now(UTC),
+            }
         )
 
     def create_question(

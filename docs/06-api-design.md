@@ -95,6 +95,12 @@
 
 首次候选 ID 由论文、类型、来源和内容确定性生成。确认后的 `item_id` 复用该 ID，并写入不影响渲染的来源锚点；后续解析优先从锚点恢复 ID，因此正文编辑不会改变条目身份。投影保存固定章节、章节内顺序和来源笔记 revision，但不会覆盖用户之后的人工修改。
 
+完整文档/条目双模式使用以下端点：
+
+- `GET .../note/items` 从已保存 Markdown 提取确认条目的当前片段，并返回笔记 revision、论文 revision、来源指纹和 `synced`、`review_required` 或 `missing` 状态；
+- `PUT .../note/items/{item_id}` 同时校验两份 revision 与来源指纹，只替换该稳定锚点对应片段，再保存 Markdown 和论文 YAML 投影；
+- 外部 Markdown 修改由 `parse-note` 返回 `new`、`modified` 或 `unchanged` 候选，`import-candidates` 只同步用户明确选择的新增或修改候选，并返回新增及已同步条目 ID。
+
 ### 关系和研究空白
 
 - `GET/PUT /projects/{project_id}/relations`
@@ -106,7 +112,7 @@
 阶段 4A/4B 还需要在实现切片中增加以下资源，但本设计更新不把未实现端点写入当前运行时 OpenAPI：
 
 - 个人补充笔记读取与带 revision 保存；
-- 完整笔记条目定位、条目投影同步状态和稳定跳转解析；
+- 完整笔记的项目级稳定跳转解析；
 - 项目级条目关系 CRUD、反向引用和悬空引用诊断；
 - 问题归纳板、领域问题及论文贡献 CRUD；
 - 以领域问题为行、每篇论文含“方法/解决程度”两个子列的归纳矩阵查询。

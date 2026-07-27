@@ -25,7 +25,7 @@ def test_migrates_v1_source_and_optional_bibliography_fields() -> None:
         }
     )
 
-    assert migrated["schema_version"] == 5
+    assert migrated["schema_version"] == 6
     assert migrated["source"]["original_filename"] == "example.pdf"
     assert migrated["source"]["sha256"] is None
     assert migrated["bibliography"]["doi"] is None
@@ -119,7 +119,7 @@ def test_repository_saves_an_edited_v2_record_as_v3(tmp_path: Path) -> None:
         expected_revision=1,
     )
 
-    assert saved.schema_version == 5
+    assert saved.schema_version == 6
     assert repository.load(project_id, paper_id).organization.group == "核心文献"
 
 
@@ -140,7 +140,7 @@ def test_migrates_v3_analysis_without_losing_legacy_summary() -> None:
         }
     )
 
-    assert migrated["schema_version"] == 5
+    assert migrated["schema_version"] == 6
     assert migrated["structured_summary"]["background"] == {"problem": "Legacy problem"}
     assert migrated["structured_summary"]["items"] == []
 
@@ -162,7 +162,29 @@ def test_migrates_v4_items_with_empty_note_source_metadata() -> None:
     )
 
     item = migrated["structured_summary"]["items"][0]
-    assert migrated["schema_version"] == 5
+    assert migrated["schema_version"] == 6
     assert item["title"] == "Legacy method"
     assert item["section_key"] is None
     assert item["source_note_revision"] is None
+    assert item["source_fingerprint"] is None
+
+
+def test_migrates_v5_item_source_without_losing_anchor() -> None:
+    migrated = migrate_paper(
+        {
+            "schema_version": 5,
+            "structured_summary": {
+                "items": [
+                    {
+                        "item_id": "11111111-1111-4111-8111-111111111111",
+                        "source_anchor": "papermatrix:item:11111111-1111-4111-8111-111111111111",
+                    }
+                ]
+            },
+        }
+    )
+
+    item = migrated["structured_summary"]["items"][0]
+    assert migrated["schema_version"] == 6
+    assert item["source_anchor"].endswith("11111111-1111-4111-8111-111111111111")
+    assert item["source_fingerprint"] is None

@@ -4,6 +4,8 @@ import { apiGet, apiRequest } from '@/api/client'
 import type {
   AnalysisItemInput,
   CandidateImportResult,
+  NoteItemDocument,
+  NoteItemUpdateResult,
   NoteParsePreview,
   Paper,
   PaperAnalysisDocument,
@@ -143,6 +145,31 @@ export const usePaperStore = defineStore('papers', {
         body: { markdown, expected_revision: expectedRevision },
         timeoutMs: 15_000,
       })
+    },
+    async getNoteItems(projectId: string, paperId: string) {
+      return apiGet<NoteItemDocument>(`/projects/${projectId}/papers/${paperId}/note/items`)
+    },
+    async updateNoteItem(
+      projectId: string,
+      paperId: string,
+      itemId: string,
+      markdown: string,
+      expectedNoteRevision: number,
+      expectedPaperRevision: number,
+      expectedSourceFingerprint: string,
+    ) {
+      return apiRequest<NoteItemUpdateResult>(
+        `/projects/${projectId}/papers/${paperId}/note/items/${itemId}`,
+        {
+          method: 'PUT',
+          body: {
+            markdown,
+            expected_note_revision: expectedNoteRevision,
+            expected_paper_revision: expectedPaperRevision,
+            expected_source_fingerprint: expectedSourceFingerprint,
+          },
+        },
+      )
     },
     async getQuestions(projectId: string, paperId: string) {
       return apiGet<QuestionsDocument>(`/projects/${projectId}/papers/${paperId}/questions`)

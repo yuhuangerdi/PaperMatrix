@@ -8,7 +8,12 @@ from uuid import UUID
 from fastapi import APIRouter, Query, Request, status
 from pydantic import BaseModel, Field, model_validator
 
-from papermatrix.domain.note_analysis import CandidateImportResult, NoteParsePreview
+from papermatrix.domain.note_analysis import (
+    CandidateImportResult,
+    NoteItemDocument,
+    NoteItemUpdateResult,
+    NoteParsePreview,
+)
 from papermatrix.domain.paper_content import (
     EvidenceReference,
     PaperNote,
@@ -32,6 +37,13 @@ class CandidateImportRequest(BaseModel):
     candidate_ids: list[UUID] = Field(min_length=1)
     expected_note_revision: int = Field(ge=0)
     expected_paper_revision: int = Field(ge=1)
+
+
+class NoteItemUpdate(BaseModel):
+    markdown: str = Field(min_length=1, max_length=200_000)
+    expected_note_revision: int = Field(ge=0)
+    expected_paper_revision: int = Field(ge=1)
+    expected_source_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class QuestionInput(BaseModel):
@@ -89,6 +101,37 @@ def import_note_candidates(
     return _service(request).import_note_candidates(
         project_id,
         paper_id,
+        **payload.model_dump(),
+    )
+
+
+@router.get(
+    "/projects/{project_id}/papers/{paper_id}/note/items",
+    response_model=NoteItemDocument,
+)
+def get_note_items(
+    project_id: UUID,
+    paper_id: UUID,
+    request: Request,
+) -> NoteItemDocument:
+    return _service(request).get_note_items(project_id, paper_id)
+
+
+@router.put(
+    "/projects/{project_id}/papers/{paper_id}/note/items/{item_id}",
+    response_model=NoteItemUpdateResult,
+)
+def update_note_item(
+    project_id: UUID,
+    paper_id: UUID,
+    item_id: UUID,
+    payload: NoteItemUpdate,
+    request: Request,
+) -> NoteItemUpdateResult:
+    return _service(request).update_note_item(
+        project_id,
+        paper_id,
+        item_id,
         **payload.model_dump(),
     )
 

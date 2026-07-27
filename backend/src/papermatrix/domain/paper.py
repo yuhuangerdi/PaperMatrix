@@ -98,6 +98,7 @@ class AnalysisItem(BaseModel):
     section_order: int | None = Field(default=None, ge=1)
     source_anchor: str | None = Field(default=None, max_length=80)
     source_note_revision: int | None = Field(default=None, ge=1)
+    source_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     attributes: dict[str, str] = Field(default_factory=dict)
     evidence_refs: list[EvidenceReference] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
@@ -144,7 +145,7 @@ class StructuredSummary(BaseModel):
 
 
 class Paper(BaseModel):
-    schema_version: Literal[5] = 5
+    schema_version: Literal[6] = 6
     paper_id: UUID
     project_id: UUID
     source: PaperSource

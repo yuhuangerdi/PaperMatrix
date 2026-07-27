@@ -332,3 +332,125 @@ def test_note_candidate_preview_confirm_duplicate_and_stale_protection(tmp_path:
     assert stale.json()["error"]["code"] == "PM-ANALYSIS-002"
     assert stale.json()["error"]["details"]["resource"] == "note"
     assert client.get(analysis_endpoint).json()["revision"] == 2
+
+
+def test_note_item_mode_updates_only_anchored_fragment_and_rejects_stale_edit(
+    tmp_path: Path,
+) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    note_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/note"
+    analysis_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/analysis"
+    markdown = """# Evidence
+
+## 3. 本文解决思路和整体框架
+### 3.1 核心思路
+使用证据反馈重新规划失败任务。
+
+## 8. 批判性评价
+### 8.2 作者承认的局限
+只在三个公开基准上验证。
+"""
+    client.put(note_endpoint, json={"markdown": markdown, "expected_revision": 0})
+    preview = client.post(f"{analysis_endpoint}/parse-note").json()
+    method_id = preview["candidates"][0]["candidate_id"]
+    imported = client.post(
+        f"{analysis_endpoint}/import-candidates",
+        json={
+            "candidate_ids": [method_id],
+            "expected_note_revision": 1,
+            "expected_paper_revision": 1,
+        },
+    ).json()
+
+    item_endpoint = f"{note_endpoint}/items"
+    document = client.get(item_endpoint)
+    assert document.status_code == 200
+    source = document.json()["items"][0]
+    assert source["sync_status"] == "synced"
+    assert source["markdown"].startswith("### 3.1 核心思路")
+
+    replacement = "### 3.1 核心思路\n使用检查点恢复失败任务。"
+    updated = client.put(
+        f"{item_endpoint}/{method_id}",
+        json={
+            "markdown": replacement,
+            "expected_note_revision": imported["note"]["revision"],
+            "expected_paper_revision": imported["analysis"]["revision"],
+            "expected_source_fingerprint": source["source_fingerprint"],
+        },
+    )
+    assert updated.status_code == 200
+    result = updated.json()
+    assert result["note"]["revision"] == 3
+    assert result["analysis"]["revision"] == 3
+    assert result["item"]["summary"] == "使用检查点恢复失败任务。"
+    assert "只在三个公开基准上验证。" in result["note"]["markdown"]
+    assert result["note"]["markdown"].count(f"papermatrix:item:{method_id}") == 1
+
+    stale = client.put(
+        f"{item_endpoint}/{method_id}",
+        json={
+            "markdown": "### 3.1 核心思路\n过期覆盖。",
+            "expected_note_revision": 2,
+            "expected_paper_revision": 2,
+            "expected_source_fingerprint": source["source_fingerprint"],
+        },
+    )
+    assert stale.status_code == 409
+    assert "过期覆盖" not in client.get(note_endpoint).json()["markdown"]
+
+
+def test_external_markdown_change_requires_review_before_projection_sync(tmp_path: Path) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    note_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/note"
+    analysis_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/analysis"
+    markdown = """# Evidence
+
+## 3. 本文解决思路和整体框架
+### 3.1 核心思路
+使用证据反馈重新规划失败任务。
+"""
+    client.put(note_endpoint, json={"markdown": markdown, "expected_revision": 0})
+    preview = client.post(f"{analysis_endpoint}/parse-note").json()
+    method_id = preview["candidates"][0]["candidate_id"]
+    imported = client.post(
+        f"{analysis_endpoint}/import-candidates",
+        json={
+            "candidate_ids": [method_id],
+            "expected_note_revision": 1,
+            "expected_paper_revision": 1,
+        },
+    ).json()
+    externally_changed = imported["note"]["markdown"].replace(
+        "使用证据反馈重新规划失败任务。",
+        "外部编辑器改为使用状态检查点。",
+    )
+    saved = client.put(
+        note_endpoint,
+        json={"markdown": externally_changed, "expected_revision": 2},
+    )
+    assert saved.status_code == 200
+
+    item_document = client.get(f"{note_endpoint}/items").json()
+    assert item_document["items"][0]["sync_status"] == "review_required"
+    assert item_document["pending_candidate_count"] == 1
+    changed_preview = client.post(f"{analysis_endpoint}/parse-note").json()
+    changed = changed_preview["candidates"][0]
+    assert changed["candidate_id"] == method_id
+    assert changed["sync_status"] == "modified"
+
+    synchronized = client.post(
+        f"{analysis_endpoint}/import-candidates",
+        json={
+            "candidate_ids": [method_id],
+            "expected_note_revision": 3,
+            "expected_paper_revision": 2,
+        },
+    )
+    assert synchronized.status_code == 200
+    result = synchronized.json()
+    assert result["imported_items"] == []
+    assert result["synchronized_items"][0]["item_id"] == method_id
+    assert result["synchronized_items"][0]["summary"] == "外部编辑器改为使用状态检查点。"
+    assert result["note"]["revision"] == 3
+    assert client.get(f"{note_endpoint}/items").json()["items"][0]["sync_status"] == "synced"

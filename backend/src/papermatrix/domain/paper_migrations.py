@@ -8,9 +8,9 @@ from typing import Any
 
 def migrate_paper(data: dict[str, Any]) -> dict[str, Any]:
     version = data.get("schema_version")
-    if version == 5:
+    if version == 6:
         return data
-    if version not in {1, 2, 3, 4}:
+    if version not in {1, 2, 3, 4, 5}:
         return data
 
     migrated = dict(data)
@@ -55,9 +55,10 @@ def migrate_paper(data: dict[str, Any]) -> dict[str, Any]:
             "section_order": item.get("section_order"),
             "source_anchor": item.get("source_anchor"),
             "source_note_revision": item.get("source_note_revision"),
+            "source_fingerprint": item.get("source_fingerprint"),
         }
         for item in structured_summary["items"]
     ]
     migrated["structured_summary"] = structured_summary
-    migrated["schema_version"] = 5
+    migrated["schema_version"] = 6
     return migrated

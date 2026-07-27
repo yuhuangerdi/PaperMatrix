@@ -79,7 +79,7 @@ export interface Paper extends Omit<
   PaperSummary,
   'source_status' | 'source_filename' | 'page_count'
 > {
-  schema_version: 5
+  schema_version: 6
   source: {
     path: string | null
     path_mode: 'absolute' | 'workspace_relative' | null
@@ -211,6 +211,7 @@ export interface AnalysisItem {
   section_order: number | null
   source_anchor: string | null
   source_note_revision: number | null
+  source_fingerprint: string | null
   attributes: Record<string, string>
   evidence_refs: EvidenceReference[]
   tags: string[]
@@ -247,6 +248,8 @@ export interface NoteAnalysisCandidate {
   section_title: string
   section_order: number
   source_anchor: string
+  source_fingerprint: string
+  sync_status: 'new' | 'unchanged' | 'modified'
   source_section: string
   source_line_start: number
   source_line_end: number
@@ -265,7 +268,34 @@ export interface CandidateImportResult {
   analysis: PaperAnalysisDocument
   note: PaperNote
   imported_items: AnalysisItem[]
+  synchronized_items: AnalysisItem[]
   skipped_candidate_ids: string[]
+}
+
+export interface NoteItemSource {
+  item_id: string
+  kind: AnalysisItemKind
+  title: string
+  section_key: string | null
+  section_title: string | null
+  section_order: number | null
+  markdown: string
+  source_fingerprint: string | null
+  sync_status: 'synced' | 'review_required' | 'missing'
+}
+
+export interface NoteItemDocument {
+  paper_id: string
+  note_revision: number
+  paper_revision: number
+  items: NoteItemSource[]
+  pending_candidate_count: number
+}
+
+export interface NoteItemUpdateResult {
+  note: PaperNote
+  analysis: PaperAnalysisDocument
+  item: AnalysisItem
 }
 
 export interface ScanCandidate {

@@ -17,7 +17,7 @@ const emit = defineEmits<{
 const selectedIds = ref<string[]>([])
 const eligibleIds = computed(() =>
   props.preview.candidates
-    .filter((candidate) => !candidate.duplicate_item_id)
+    .filter((candidate) => candidate.sync_status !== 'unchanged')
     .map((candidate) => candidate.candidate_id),
 )
 const allSelected = computed(
@@ -100,18 +100,23 @@ function kindLabel(kind: AnalysisItemKind) {
           <label
             v-for="candidate in preview.candidates"
             :key="candidate.candidate_id"
-            :class="{ 'candidate-review-item--duplicate': candidate.duplicate_item_id }"
+            :class="{ 'candidate-review-item--duplicate': candidate.sync_status === 'unchanged' }"
           >
             <input
               v-model="selectedIds"
               type="checkbox"
               :value="candidate.candidate_id"
-              :disabled="busy || !!candidate.duplicate_item_id"
+              :disabled="busy || candidate.sync_status === 'unchanged'"
             />
             <span class="candidate-review-content">
               <span class="candidate-review-meta">
                 <span class="analysis-kind">{{ kindLabel(candidate.kind) }}</span>
-                <span v-if="candidate.duplicate_item_id" class="duplicate-state">已存在</span>
+                <span v-if="candidate.sync_status === 'unchanged'" class="duplicate-state">
+                  已同步
+                </span>
+                <span v-else-if="candidate.sync_status === 'modified'" class="review-state">
+                  正文已修改
+                </span>
                 <span v-else-if="candidate.evidence_refs.length" class="evidence-state">
                   {{ candidate.evidence_refs.length }} 条证据
                 </span>
@@ -131,7 +136,7 @@ function kindLabel(kind: AnalysisItemKind) {
       </div>
 
       <footer>
-        <span>确认后写入稳定定位标记与论文 YAML；已有人工条目不会被覆盖。</span>
+        <span>新增项会写入稳定标记；正文修改只有确认后才同步到论文 YAML。</span>
         <div>
           <button
             class="button button--secondary"

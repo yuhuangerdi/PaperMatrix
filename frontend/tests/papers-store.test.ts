@@ -193,7 +193,14 @@ describe('paper store', () => {
               updated_at: '2026-07-27T00:00:00Z',
               items: [],
             },
+            note: {
+              paper_id: 'paper-id',
+              markdown: '# Note',
+              revision: 3,
+              updated_at: '2026-07-27T00:00:00Z',
+            },
             imported_items: [],
+            synchronized_items: [],
             skipped_candidate_ids: [],
           }),
       })
@@ -209,6 +216,51 @@ describe('paper store', () => {
       candidate_ids: ['candidate-id'],
       expected_note_revision: 3,
       expected_paper_revision: 2,
+    })
+  })
+
+  it('loads and updates an anchored note item with both revisions and fingerprint', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            paper_id: 'paper-id',
+            note_revision: 4,
+            paper_revision: 3,
+            items: [],
+            pending_candidate_count: 0,
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({}),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = usePaperStore()
+
+    await store.getNoteItems('project-id', 'paper-id')
+    await store.updateNoteItem(
+      'project-id',
+      'paper-id',
+      'item-id',
+      '### 核心思路\n更新后的正文',
+      4,
+      3,
+      'a'.repeat(64),
+    )
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/note/items')
+    const request = fetchMock.mock.calls[1]?.[1] as RequestInit
+    expect(request.method).toBe('PUT')
+    expect(JSON.parse(String(request.body))).toEqual({
+      markdown: '### 核心思路\n更新后的正文',
+      expected_note_revision: 4,
+      expected_paper_revision: 3,
+      expected_source_fingerprint: 'a'.repeat(64),
     })
   })
 })

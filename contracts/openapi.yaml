@@ -454,6 +454,43 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PaperNote" }
         "409": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/papers/{paper_id}/note/items:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+    get:
+      operationId: getPaperNoteItems
+      summary: 从完整 Markdown 读取确认条目的可编辑来源片段
+      responses:
+        "200":
+          description: Note item document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NoteItemDocument" }
+  /projects/{project_id}/papers/{paper_id}/note/items/{item_id}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+      - in: path
+        name: item_id
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      operationId: updatePaperNoteItem
+      summary: 只替换稳定锚点对应的 Markdown 片段并同步条目投影
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NoteItemUpdate" }
+      responses:
+        "200":
+          description: Updated note and analysis projection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NoteItemUpdateResult" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+        "422": { $ref: "#/components/responses/ErrorResponse" }
   /projects/{project_id}/papers/{paper_id}/questions:
     parameters:
       - $ref: "#/components/parameters/ProjectId"
@@ -916,7 +953,7 @@ components:
           revision,
         ]
       properties:
-        schema_version: { type: integer, const: 5 }
+        schema_version: { type: integer, const: 6 }
         paper_id: { type: string, format: uuid }
         project_id: { type: string, format: uuid }
         source:
@@ -1097,6 +1134,7 @@ components:
           section_order,
           source_anchor,
           source_note_revision,
+          source_fingerprint,
           attributes,
           evidence_refs,
           tags,
@@ -1131,6 +1169,9 @@ components:
         section_order: { type: [integer, "null"], minimum: 1 }
         source_anchor: { type: [string, "null"], maxLength: 80 }
         source_note_revision: { type: [integer, "null"], minimum: 1 }
+        source_fingerprint:
+          type: [string, "null"]
+          pattern: "^[0-9a-f]{64}$"
         attributes:
           type: object
           additionalProperties: { type: string }
@@ -1244,6 +1285,8 @@ components:
           section_title,
           section_order,
           source_anchor,
+          source_fingerprint,
+          sync_status,
           source_section,
           source_line_start,
           source_line_end,
@@ -1281,6 +1324,12 @@ components:
         section_title: { type: string, maxLength: 300 }
         section_order: { type: integer, minimum: 1 }
         source_anchor: { type: string, maxLength: 80 }
+        source_fingerprint:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        sync_status:
+          type: string
+          enum: [new, unchanged, modified]
         source_section: { type: string, maxLength: 300 }
         source_line_start: { type: integer, minimum: 1 }
         source_line_end: { type: integer, minimum: 1 }
@@ -1314,16 +1363,83 @@ components:
         expected_paper_revision: { type: integer, minimum: 1 }
     CandidateImportResult:
       type: object
-      required: [analysis, note, imported_items, skipped_candidate_ids]
+      required:
+        [analysis, note, imported_items, synchronized_items, skipped_candidate_ids]
       properties:
         analysis: { $ref: "#/components/schemas/PaperAnalysisDocument" }
         note: { $ref: "#/components/schemas/PaperNote" }
         imported_items:
           type: array
           items: { $ref: "#/components/schemas/AnalysisItem" }
+        synchronized_items:
+          type: array
+          items: { $ref: "#/components/schemas/AnalysisItem" }
         skipped_candidate_ids:
           type: array
           items: { type: string, format: uuid }
+    NoteItemSource:
+      type: object
+      required:
+        [
+          item_id,
+          kind,
+          title,
+          section_key,
+          section_title,
+          section_order,
+          markdown,
+          source_fingerprint,
+          sync_status,
+        ]
+      properties:
+        item_id: { type: string, format: uuid }
+        kind: { $ref: "#/components/schemas/AnalysisItem/properties/kind" }
+        title: { type: string }
+        section_key: { type: [string, "null"] }
+        section_title: { type: [string, "null"] }
+        section_order: { type: [integer, "null"], minimum: 1 }
+        markdown: { type: string }
+        source_fingerprint:
+          type: [string, "null"]
+          pattern: "^[0-9a-f]{64}$"
+        sync_status:
+          type: string
+          enum: [synced, review_required, missing]
+    NoteItemDocument:
+      type: object
+      required:
+        [paper_id, note_revision, paper_revision, items, pending_candidate_count]
+      properties:
+        paper_id: { type: string, format: uuid }
+        note_revision: { type: integer, minimum: 0 }
+        paper_revision: { type: integer, minimum: 1 }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/NoteItemSource" }
+        pending_candidate_count: { type: integer, minimum: 0 }
+    NoteItemUpdate:
+      type: object
+      required:
+        [
+          markdown,
+          expected_note_revision,
+          expected_paper_revision,
+          expected_source_fingerprint,
+        ]
+      properties:
+        markdown: { type: string, minLength: 1, maxLength: 200000 }
+        expected_note_revision: { type: integer, minimum: 0 }
+        expected_paper_revision: { type: integer, minimum: 1 }
+        expected_source_fingerprint:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+    NoteItemUpdateResult:
+      type: object
+      required: [note, analysis, item]
+      properties:
+        note: { $ref: "#/components/schemas/PaperNote" }
+        analysis: { $ref: "#/components/schemas/PaperAnalysisDocument" }
+        item: { $ref: "#/components/schemas/AnalysisItem" }
     RelationsDocument:
       type: object
       required: [project_id, revision, relations]

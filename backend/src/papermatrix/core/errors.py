@@ -242,3 +242,13 @@ class AnalysisCandidateSelectionError(PaperMatrixError):
             action="请重新解析笔记后再确认。",
             details={"unknown_candidate_ids": unknown_ids},
         )
+
+
+class AnalysisItemSourceError(PaperMatrixError):
+    def __init__(self, message: str = "分析条目的 Markdown 来源无法安全更新。") -> None:
+        super().__init__(
+            "PM-ANALYSIS-004",
+            message,
+            status_code=422,
+            action="请重新加载笔记并通过候选审阅修复条目来源。",
+        )

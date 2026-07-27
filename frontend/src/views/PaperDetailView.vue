@@ -26,10 +26,12 @@ import type {
   AnalysisItem,
   AnalysisItemInput,
   EvidenceReference,
+  NoteItemDocument,
+  NoteItemSource,
+  NoteParsePreview,
   Paper,
   PaperAnalysisDocument,
   PaperNote,
-  NoteParsePreview,
   QuestionInput,
   QuestionsDocument,
   QuestionStatus,
@@ -38,6 +40,7 @@ import type {
 
 type DetailTab = 'overview' | 'note' | 'questions' | 'analysis'
 type SaveState = 'loading' | 'saved' | 'dirty' | 'saving' | 'failed' | 'conflict'
+type NoteMode = 'document' | 'items'
 
 const route = useRoute()
 const paperStore = usePaperStore()
@@ -49,6 +52,11 @@ const note = ref<PaperNote | null>(null)
 const noteDraft = ref('')
 const savedDraft = ref('')
 const noteState = ref<SaveState>('loading')
+const noteMode = ref<NoteMode>('document')
+const noteItems = ref<NoteItemDocument | null>(null)
+const selectedNoteItemId = ref<string | null>(null)
+const noteItemDraft = ref('')
+const savedNoteItemDraft = ref('')
 const questions = ref<QuestionsDocument | null>(null)
 const analysis = ref<PaperAnalysisDocument | null>(null)
 const loading = ref(true)
@@ -90,8 +98,15 @@ const noteStateLabel = computed(
       conflict: '存在版本冲突',
     })[noteState.value],
 )
-const hasUnsavedNote = computed(() =>
-  ['dirty', 'saving', 'failed', 'conflict'].includes(noteState.value),
+const noteItemDirty = computed(() => noteItemDraft.value !== savedNoteItemDraft.value)
+const hasUnsavedNote = computed(
+  () => ['dirty', 'saving', 'failed', 'conflict'].includes(noteState.value) || noteItemDirty.value,
+)
+const selectedNoteItem = computed(
+  () => noteItems.value?.items.find((item) => item.item_id === selectedNoteItemId.value) ?? null,
+)
+const canSaveNoteItem = computed(
+  () => noteItemDirty.value && selectedNoteItem.value?.sync_status === 'synced' && !busy.value,
 )
 const questionDirty = computed(
   () => questionOpen.value && JSON.stringify(questionForm.value) !== questionInitial.value,
@@ -142,12 +157,14 @@ async function loadAll() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const [paperResult, noteResult, questionResult, analysisResult] = await Promise.all([
-      paperStore.get(projectId.value, paperId.value),
-      paperStore.getNote(projectId.value, paperId.value),
-      paperStore.getQuestions(projectId.value, paperId.value),
-      paperStore.getAnalysis(projectId.value, paperId.value),
-    ])
+    const [paperResult, noteResult, questionResult, analysisResult, noteItemsResult] =
+      await Promise.all([
+        paperStore.get(projectId.value, paperId.value),
+        paperStore.getNote(projectId.value, paperId.value),
+        paperStore.getQuestions(projectId.value, paperId.value),
+        paperStore.getAnalysis(projectId.value, paperId.value),
+        paperStore.getNoteItems(projectId.value, paperId.value),
+      ])
     paper.value = paperResult
     note.value = noteResult
     noteDraft.value = noteResult.markdown
@@ -155,6 +172,8 @@ async function loadAll() {
     noteState.value = 'saved'
     questions.value = questionResult
     analysis.value = analysisResult
+    noteItems.value = noteItemsResult
+    selectInitialNoteItem(noteItemsResult)
   } catch (error: unknown) {
     errorMessage.value = error instanceof ApiError ? error.message : '无法读取论文详情。'
   } finally {
@@ -178,6 +197,9 @@ async function saveNote() {
     savedDraft.value = saved.markdown
     if (noteDraft.value === savedDraft.value) {
       noteState.value = 'saved'
+      await reloadNoteItems().catch(() => {
+        errorMessage.value = '笔记已保存，但条目视图刷新失败，请重新加载页面。'
+      })
     } else {
       noteState.value = 'dirty'
       saveTimer = window.setTimeout(() => void saveNote(), 1500)
@@ -193,6 +215,87 @@ async function saveNote() {
 async function copyNote() {
   await navigator.clipboard.writeText(noteDraft.value)
   successMessage.value = '笔记草稿已复制。'
+}
+
+function selectInitialNoteItem(document: NoteItemDocument) {
+  const selected =
+    document.items.find((item) => item.item_id === selectedNoteItemId.value) ??
+    document.items[0] ??
+    null
+  selectedNoteItemId.value = selected?.item_id ?? null
+  noteItemDraft.value = selected?.markdown ?? ''
+  savedNoteItemDraft.value = selected?.markdown ?? ''
+}
+
+async function reloadNoteItems() {
+  const document = await paperStore.getNoteItems(projectId.value, paperId.value)
+  noteItems.value = document
+  selectInitialNoteItem(document)
+}
+
+function selectNoteItem(item: NoteItemSource) {
+  if (noteItemDirty.value && !window.confirm('放弃当前条目尚未保存的修改吗？')) return
+  selectedNoteItemId.value = item.item_id
+  noteItemDraft.value = item.markdown
+  savedNoteItemDraft.value = item.markdown
+}
+
+function switchNoteMode(mode: NoteMode) {
+  if (mode === noteMode.value) return
+  if (mode === 'items' && noteState.value !== 'saved') {
+    errorMessage.value = '请先保存完整文档，再进入条目模式。'
+    return
+  }
+  if (mode === 'document' && noteItemDirty.value) {
+    if (!window.confirm('放弃当前条目尚未保存的修改吗？')) return
+    noteItemDraft.value = savedNoteItemDraft.value
+  }
+  noteMode.value = mode
+}
+
+async function saveNoteItem() {
+  const item = selectedNoteItem.value
+  if (
+    !item ||
+    !noteItems.value ||
+    !item.source_fingerprint ||
+    item.sync_status !== 'synced' ||
+    !noteItemDirty.value
+  ) {
+    return
+  }
+  busy.value = true
+  errorMessage.value = ''
+  try {
+    const result = await paperStore.updateNoteItem(
+      projectId.value,
+      paperId.value,
+      item.item_id,
+      noteItemDraft.value,
+      noteItems.value.note_revision,
+      noteItems.value.paper_revision,
+      item.source_fingerprint,
+    )
+    note.value = result.note
+    noteDraft.value = result.note.markdown
+    savedDraft.value = result.note.markdown
+    analysis.value = result.analysis
+    syncPaperRevision(result.analysis)
+    const refreshed = await reloadNoteItems()
+      .then(() => true)
+      .catch(() => false)
+    if (refreshed) {
+      successMessage.value = '条目正文和分析投影已同步保存。'
+    } else {
+      noteMode.value = 'document'
+      errorMessage.value = '条目已保存，但条目视图刷新失败，请重新加载页面。'
+    }
+  } catch (error: unknown) {
+    errorMessage.value =
+      error instanceof ApiError ? error.message : '条目保存失败，当前草稿仍保留。'
+  } finally {
+    busy.value = false
+  }
 }
 
 function openPaperEdit() {
@@ -404,6 +507,10 @@ async function deleteAnalysisItem(item: AnalysisItem) {
 }
 
 async function previewNoteCandidates() {
+  if (noteItemDirty.value) {
+    errorMessage.value = '请先保存或放弃当前条目修改，再审阅完整文档变化。'
+    return
+  }
   if (noteState.value !== 'saved') {
     errorMessage.value = '请先等待结构化笔记保存完成，再进行解析。'
     return
@@ -440,7 +547,15 @@ async function importNoteCandidates(candidateIds: string[]) {
     noteState.value = 'saved'
     candidateReviewOpen.value = false
     candidatePreview.value = null
-    successMessage.value = `已导入 ${result.imported_items.length} 条分析候选。`
+    const refreshed = await reloadNoteItems()
+      .then(() => true)
+      .catch(() => false)
+    if (refreshed) {
+      successMessage.value = `已导入 ${result.imported_items.length} 条、同步 ${result.synchronized_items.length} 条分析候选。`
+    } else {
+      noteMode.value = 'document'
+      errorMessage.value = '候选分析已保存，但条目视图刷新失败，请重新加载页面。'
+    }
   } catch (error: unknown) {
     errorMessage.value =
       error instanceof ApiError ? error.message : '分析候选导入失败，论文数据未修改。'
@@ -590,9 +705,25 @@ onBeforeUnmount(() => {
             {{ noteStateLabel }}
           </span>
         </div>
+        <div class="note-mode-switch" aria-label="笔记编辑模式">
+          <button
+            type="button"
+            :class="{ active: noteMode === 'document' }"
+            @click="switchNoteMode('document')"
+          >
+            完整文档
+          </button>
+          <button
+            type="button"
+            :class="{ active: noteMode === 'items' }"
+            @click="switchNoteMode('items')"
+          >
+            条目模式
+          </button>
+        </div>
         <div>
           <button
-            v-if="noteState === 'failed' || noteState === 'conflict'"
+            v-if="noteMode === 'document' && (noteState === 'failed' || noteState === 'conflict')"
             class="button button--secondary button--compact"
             type="button"
             @click="copyNote"
@@ -600,6 +731,7 @@ onBeforeUnmount(() => {
             <Clipboard :size="15" /> 复制草稿
           </button>
           <button
+            v-if="noteMode === 'document'"
             class="button button--primary button--compact"
             type="button"
             :disabled="noteState === 'saving' || noteDraft === savedDraft"
@@ -607,14 +739,119 @@ onBeforeUnmount(() => {
           >
             <Save :size="15" /> 保存
           </button>
+          <button
+            v-else
+            class="button button--primary button--compact"
+            type="button"
+            :disabled="!canSaveNoteItem"
+            @click="saveNoteItem"
+          >
+            <Save :size="15" /> 保存条目
+          </button>
         </div>
       </header>
       <textarea
+        v-if="noteMode === 'document'"
         v-model="noteDraft"
         class="note-editor"
         aria-label="论文结构化笔记"
         spellcheck="false"
       />
+      <div v-else class="note-item-mode">
+        <aside class="note-item-list">
+          <header>
+            <div>
+              <strong>确认条目</strong>
+              <small>{{ noteItems?.items.length ?? 0 }} 条</small>
+            </div>
+            <button
+              v-if="noteItems?.pending_candidate_count"
+              class="button button--secondary button--compact"
+              type="button"
+              :disabled="busy"
+              @click="previewNoteCandidates"
+            >
+              审阅 {{ noteItems.pending_candidate_count }} 项变化
+            </button>
+          </header>
+          <div v-if="noteItems?.items.length === 0" class="empty-state empty-state--compact">
+            <p>尚无确认条目，请先从完整文档解析并确认候选。</p>
+            <button class="button button--secondary" type="button" @click="previewNoteCandidates">
+              <ScanText :size="16" /> 解析候选
+            </button>
+          </div>
+          <button
+            v-for="item in noteItems?.items"
+            :key="item.item_id"
+            type="button"
+            class="note-item-list-entry"
+            :class="{ active: item.item_id === selectedNoteItemId }"
+            @click="selectNoteItem(item)"
+          >
+            <span>
+              <strong>{{ item.title }}</strong>
+              <small>
+                {{ item.section_title || '未绑定章节' }}
+                <template v-if="item.section_order"> · 第 {{ item.section_order }} 条</template>
+              </small>
+            </span>
+            <span class="note-sync-state" :class="`note-sync-state--${item.sync_status}`">
+              {{
+                item.sync_status === 'synced'
+                  ? '已同步'
+                  : item.sync_status === 'review_required'
+                    ? '待审阅'
+                    : '来源缺失'
+              }}
+            </span>
+          </button>
+        </aside>
+        <main class="note-item-editor-pane">
+          <div v-if="!selectedNoteItem" class="empty-state">
+            <ListTree :size="28" />
+            <h2>选择一个条目</h2>
+            <p>条目模式直接编辑完整 Markdown 中对应稳定锚点的正文。</p>
+          </div>
+          <template v-else>
+            <header>
+              <div>
+                <span class="analysis-kind">{{ analysisKindLabel(selectedNoteItem.kind) }}</span>
+                <h2>{{ selectedNoteItem.title }}</h2>
+              </div>
+              <small>条目 ID {{ selectedNoteItem.item_id }}</small>
+            </header>
+            <div
+              v-if="selectedNoteItem.sync_status !== 'synced'"
+              class="note-review-required"
+              role="status"
+            >
+              <strong>
+                {{
+                  selectedNoteItem.sync_status === 'missing'
+                    ? '稳定来源锚点缺失'
+                    : '完整文档已发生变化'
+                }}
+              </strong>
+              <p>请先通过候选差异审阅确认变化，系统不会用旧投影覆盖当前 Markdown。</p>
+              <button
+                class="button button--secondary button--compact"
+                type="button"
+                @click="previewNoteCandidates"
+              >
+                打开差异审阅
+              </button>
+            </div>
+            <textarea
+              v-model="noteItemDraft"
+              class="note-editor note-item-editor"
+              aria-label="结构化笔记条目正文"
+              spellcheck="false"
+              :disabled="selectedNoteItem.sync_status !== 'synced'"
+            />
+            <footer>只更新此稳定锚点对应的 Markdown 片段；其他章节和段落不会重排。</footer>
+          </template>
+        </main>
+      </div>
     </section>
 
     <section v-else-if="activeTab === 'questions'" class="questions-workspace">
