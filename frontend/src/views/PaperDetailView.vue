@@ -172,8 +172,7 @@ async function loadAll() {
     noteState.value = 'saved'
     questions.value = questionResult
     analysis.value = analysisResult
-    noteItems.value = noteItemsResult
-    selectInitialNoteItem(noteItemsResult)
+    applyNoteItems(noteItemsResult)
   } catch (error: unknown) {
     errorMessage.value = error instanceof ApiError ? error.message : '无法读取论文详情。'
   } finally {
@@ -227,10 +226,21 @@ function selectInitialNoteItem(document: NoteItemDocument) {
   savedNoteItemDraft.value = selected?.markdown ?? ''
 }
 
+function applyNoteItems(document: NoteItemDocument) {
+  noteItems.value = document
+  candidatePreview.value = {
+    paper_id: document.paper_id,
+    note_revision: document.note_revision,
+    paper_revision: document.paper_revision,
+    candidates: document.candidates,
+    warnings: document.warnings,
+  }
+  selectInitialNoteItem(document)
+}
+
 async function reloadNoteItems() {
   const document = await paperStore.getNoteItems(projectId.value, paperId.value)
-  noteItems.value = document
-  selectInitialNoteItem(document)
+  applyNoteItems(document)
 }
 
 function selectNoteItem(item: NoteItemSource) {
@@ -506,22 +516,30 @@ async function deleteAnalysisItem(item: AnalysisItem) {
   }
 }
 
-async function previewNoteCandidates() {
+async function openCandidateReview() {
   if (noteItemDirty.value) {
     errorMessage.value = '请先保存或放弃当前条目修改，再审阅完整文档变化。'
     return
   }
   if (noteState.value !== 'saved') {
-    errorMessage.value = '请先等待结构化笔记保存完成，再进行解析。'
+    errorMessage.value = '请先等待结构化笔记保存完成，再审阅自动解析结果。'
     return
   }
+  if (!candidatePreview.value) {
+    await refreshNoteCandidates()
+    return
+  }
+  candidateReviewOpen.value = true
+}
+
+async function refreshNoteCandidates() {
   busy.value = true
   errorMessage.value = ''
   try {
-    candidatePreview.value = await paperStore.previewNoteAnalysis(projectId.value, paperId.value)
+    await reloadNoteItems()
     candidateReviewOpen.value = true
   } catch (error: unknown) {
-    errorMessage.value = error instanceof ApiError ? error.message : '结构化笔记解析失败。'
+    errorMessage.value = error instanceof ApiError ? error.message : '自动解析结果刷新失败。'
   } finally {
     busy.value = false
   }
@@ -769,15 +787,24 @@ onBeforeUnmount(() => {
               class="button button--secondary button--compact"
               type="button"
               :disabled="busy"
-              @click="previewNoteCandidates"
+              @click="openCandidateReview"
             >
               审阅 {{ noteItems.pending_candidate_count }} 项变化
             </button>
           </header>
           <div v-if="noteItems?.items.length === 0" class="empty-state empty-state--compact">
-            <p>尚无确认条目，请先从完整文档解析并确认候选。</p>
-            <button class="button button--secondary" type="button" @click="previewNoteCandidates">
-              <ScanText :size="16" /> 解析候选
+            <p v-if="noteItems.note_revision === 0">填写并保存结构化文档后将自动解析候选。</p>
+            <p v-else-if="noteItems.pending_candidate_count">
+              已自动解析 {{ noteItems.pending_candidate_count }} 项候选，确认后可在条目模式编辑。
+            </p>
+            <p v-else>文档已自动解析，暂未发现可确认的结构化内容。</p>
+            <button
+              v-if="noteItems.pending_candidate_count"
+              class="button button--secondary"
+              type="button"
+              @click="openCandidateReview"
+            >
+              <ScanText :size="16" /> 审阅自动解析结果
             </button>
           </div>
           <button
@@ -836,7 +863,7 @@ onBeforeUnmount(() => {
               <button
                 class="button button--secondary button--compact"
                 type="button"
-                @click="previewNoteCandidates"
+                @click="openCandidateReview"
               >
                 打开差异审阅
               </button>
@@ -922,12 +949,17 @@ onBeforeUnmount(() => {
         </div>
         <div class="analysis-header-actions">
           <button
+            v-if="noteItems?.pending_candidate_count"
             class="button button--secondary"
             type="button"
             :disabled="busy || noteState !== 'saved'"
-            @click="previewNoteCandidates"
+            @click="openCandidateReview"
           >
-            <ScanText :size="17" /> 从笔记提取
+            <ScanText :size="17" /> 审阅 {{ noteItems.pending_candidate_count }} 项自动解析结果
+          </button>
+          <button v-else class="button button--secondary" type="button" disabled>
+            <Check :size="17" />
+            {{ noteItems?.note_revision === 0 ? '保存笔记后自动解析' : '笔记已自动解析' }}
           </button>
           <button class="button button--primary" type="button" @click="openAnalysisItem()">
             <Plus :size="17" /> 添加条目
@@ -1010,7 +1042,7 @@ onBeforeUnmount(() => {
       :preview="candidatePreview"
       :busy="busy"
       @close="candidateReviewOpen = false"
-      @refresh="previewNoteCandidates"
+      @refresh="refreshNoteCandidates"
       @import="importNoteCandidates"
     />
 

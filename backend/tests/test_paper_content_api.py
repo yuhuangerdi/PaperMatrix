@@ -82,7 +82,47 @@ def test_unsaved_default_note_does_not_expose_template_examples_as_candidates(
     assert payload["warnings"] == [
         "当前显示尚未保存的默认模板。请先填写并保存笔记后再解析分析候选。"
     ]
+    item_document = client.get(f"/api/v1/projects/{project_id}/papers/{paper_id}/note/items").json()
+    assert item_document["candidates"] == []
+    assert item_document["pending_candidate_count"] == 0
+    assert item_document["warnings"] == [
+        "当前显示尚未保存的默认模板。请先填写并保存笔记后再审阅分析候选。"
+    ]
     assert not list((workspace_root / "projects" / project_id / "notes").glob("*.md"))
+
+
+def test_saved_note_is_automatically_parsed_by_note_items_endpoint(tmp_path: Path) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    note_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/note"
+    markdown = """# Evidence
+
+## 3. 本文解决思路和整体框架
+### 3.1 核心思路
+使用状态检查点恢复失败任务。
+
+## 6. 具体流程和技术细节
+### 6.2 任务规划
+- 输入: 失败状态
+- 输出: 恢复计划
+"""
+    saved = client.put(
+        note_endpoint,
+        json={"markdown": markdown, "expected_revision": 0},
+    )
+    assert saved.status_code == 200
+
+    document = client.get(f"{note_endpoint}/items")
+
+    assert document.status_code == 200
+    payload = document.json()
+    assert payload["note_revision"] == 1
+    assert payload["pending_candidate_count"] == 2
+    assert payload["warnings"] == []
+    assert [candidate["kind"] for candidate in payload["candidates"]] == [
+        "method",
+        "method_component",
+    ]
+    assert payload["items"] == []
 
 
 def test_question_create_answer_evidence_conflict_and_delete(tmp_path: Path) -> None:

@@ -133,12 +133,18 @@ class PaperContentService:
         projects, papers, content = self._repositories()
         projects.load(project_id)
         paper = papers.load(project_id, paper_id)
-        note = content.load_note(project_id, paper_id) or self.get_note(project_id, paper_id)
+        persisted_note = content.load_note(project_id, paper_id)
+        note = persisted_note or self.get_note(project_id, paper_id)
         candidates = parse_note_candidates(
             paper_id,
             note.markdown,
             paper.structured_summary.items,
         )
+        warnings: list[str] = []
+        if persisted_note is None:
+            warnings.append("当前显示尚未保存的默认模板。请先填写并保存笔记后再审阅分析候选。")
+        elif not candidates:
+            warnings.append("没有找到已填写的结构化内容。")
         by_id = {candidate.candidate_id: candidate for candidate in candidates}
         sources: list[NoteItemSource] = []
         for item in paper.structured_summary.items:
@@ -181,6 +187,8 @@ class PaperContentService:
             note_revision=note.revision,
             paper_revision=paper.revision,
             items=sources,
+            candidates=candidates,
+            warnings=warnings,
             pending_candidate_count=pending,
         )
 

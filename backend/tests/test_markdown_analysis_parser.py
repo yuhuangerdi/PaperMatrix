@@ -84,6 +84,14 @@ def test_ignores_unfilled_template_placeholders_and_marks_duplicates() -> None:
 ## 6. 具体流程和技术细节
 ### 6.10 关键实现细节
 记录删除后可能导致方案失效或实验不可复现的细节。
+
+## 7. 实验与复现性
+### 7.7 开源情况
+- 源码：公开 / 未公开 / 部分公开
+- 数据：公开 / 未公开 / 部分公开
+- 模型：开源 / 闭源
+- 环境：可构建 / 难构建
+- 复现难度：低 / 中 / 高
 """
     candidates = parse_note_candidates(PAPER_ID, markdown, [])
     assert len(candidates) == 1
@@ -114,6 +122,74 @@ def test_ignores_unfilled_template_placeholders_and_marks_duplicates() -> None:
     )
     reparsed = parse_note_candidates(PAPER_ID, markdown, [item])
     assert reparsed[0].duplicate_item_id == item.item_id
+
+
+def test_uses_heading_blocks_and_table_rows_as_balanced_item_boundaries() -> None:
+    markdown = """## 2. 现有方案分类和经典文献
+### 2.1 现有方法分类
+| 类别 | 核心思路 | 优点 | 缺点 |
+|---|---|---|---|
+| 状态恢复 | 保存执行状态后重试 | 可追溯 | 存储成本较高 |
+
+### 2.3 现有方案的共同不足
+- 无法区分暂时故障和永久故障
+- 缺少失败原因证据
+
+### 2.4 本文切入点
+利用可验证检查点恢复执行。
+
+## 5. 大致流程和创新点（3+1）
+### 5.1 大致流程
+1. 捕获失败状态
+2. 验证检查点
+3. 恢复并继续执行
+
+## 6. 具体流程和技术细节
+### 6.1 输入与预处理
+规范化任务和工具返回。
+
+### 6.2 任务规划
+- 输入：规范化任务
+- 输出：带检查点的执行计划
+
+## 7. 实验与复现性
+### 7.7 开源情况
+- 源码：公开
+- 数据：部分公开
+- 复现难度：中
+
+## 8. 批判性评价
+### 8.1 论文优点及证据
+失败恢复过程具有完整审计日志。
+
+### 8.5 可靠性检查
+- 基线是否公平：是
+- 是否适用于真实环境：仅验证了容器环境
+"""
+    candidates = parse_note_candidates(PAPER_ID, markdown, [])
+
+    assert [candidate.kind for candidate in candidates] == [
+        "method",
+        "challenge",
+        "method",
+        "method",
+        "method_component",
+        "method_component",
+        "experiment",
+        "contribution",
+        "condition",
+    ]
+    assert candidates[0].title == "状态恢复"
+    assert candidates[0].attributes["核心思路"] == "保存执行状态后重试"
+    assert candidates[1].summary.count("\n") == 1
+    assert candidates[5].attributes == {
+        "输入": "规范化任务",
+        "输出": "带检查点的执行计划",
+    }
+    assert all(
+        candidate.source_line_end - candidate.source_line_start < 8 for candidate in candidates
+    )
+    assert len({candidate.source_section for candidate in candidates}) == len(candidates)
 
 
 def test_anchors_preserve_content_and_stabilize_heading_and_table_item_ids() -> None:

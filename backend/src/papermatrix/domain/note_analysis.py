@@ -63,6 +63,8 @@ class NoteItemDocument(BaseModel):
     note_revision: int = Field(ge=0)
     paper_revision: int = Field(ge=1)
     items: list[NoteItemSource]
+    candidates: list[NoteAnalysisCandidate]
+    warnings: list[str] = Field(default_factory=list)
     pending_candidate_count: int = Field(ge=0)
 
 

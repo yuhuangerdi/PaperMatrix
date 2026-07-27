@@ -1421,7 +1421,15 @@ components:
     NoteItemDocument:
       type: object
       required:
-        [paper_id, note_revision, paper_revision, items, pending_candidate_count]
+        [
+          paper_id,
+          note_revision,
+          paper_revision,
+          items,
+          candidates,
+          warnings,
+          pending_candidate_count,
+        ]
       properties:
         paper_id: { type: string, format: uuid }
         note_revision: { type: integer, minimum: 0 }
@@ -1429,6 +1437,12 @@ components:
         items:
           type: array
           items: { $ref: "#/components/schemas/NoteItemSource" }
+        candidates:
+          type: array
+          items: { $ref: "#/components/schemas/NoteAnalysisCandidate" }
+        warnings:
+          type: array
+          items: { type: string }
         pending_candidate_count: { type: integer, minimum: 0 }
     NoteItemUpdate:
       type: object

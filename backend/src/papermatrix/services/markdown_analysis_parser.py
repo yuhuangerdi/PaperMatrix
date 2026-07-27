@@ -31,6 +31,11 @@ _PLACEHOLDER_VALUES = {
     "效率/成本实验",
     "输入 → 模块 a → 模块 b → 模块 c → 输出",
     "记录删除后可能导致方案失效或实验不可复现的细节。",
+    "公开 / 未公开 / 部分公开",
+    "公开 / 未公开",
+    "开源 / 闭源",
+    "可构建 / 难构建",
+    "低 / 中 / 高",
 }
 
 
@@ -60,7 +65,9 @@ def parse_note_candidates(
         kind = _kind_for_heading(block.heading)
         if kind is None:
             continue
-        if "框架组成" in block.heading or "主要实验结果" in block.heading:
+        if any(
+            heading in block.heading for heading in ("现有方法分类", "框架组成", "主要实验结果")
+        ):
             candidates.extend(_table_candidates(paper_id, block, kind))
             continue
         candidate = _block_candidate(paper_id, block, kind)
@@ -122,17 +129,40 @@ def _kind_for_heading(heading: str) -> AnalysisItemKind | None:
     rules: list[tuple[tuple[str, ...], AnalysisItemKind]] = [
         (("具体问题", "问题形式化"), "research_problem"),
         (("实际应用场景",), "scenario"),
-        (("核心思路", "整体框架"), "method"),
+        (("现有方法分类", "本文切入点", "核心思路", "整体框架", "大致流程"), "method"),
         (("框架组成",), "method_component"),
+        (
+            (
+                "输入与预处理",
+                "任务规划",
+                "知识检索或 RAG",
+                "Agent / 模型决策",
+                "工具调用",
+                "环境反馈处理",
+                "结果验证",
+                "失败恢复与重新规划",
+                "输出结果",
+            ),
+            "method_component",
+        ),
         (("核心区别", "关键实现细节"), "mechanism"),
-        (("挑战",), "challenge"),
+        (("现有方案的共同不足", "挑战"), "challenge"),
         (("创新点",), "innovation"),
-        (("附加贡献",), "contribution"),
-        (("实验研究问题", "数据集与实验环境", "对比基线", "评价指标"), "experiment"),
+        (("附加贡献", "论文优点及证据"), "contribution"),
+        (
+            (
+                "实验研究问题",
+                "数据集与实验环境",
+                "对比基线",
+                "评价指标",
+                "开源情况",
+            ),
+            "experiment",
+        ),
         (("主要实验结果", "失败案例"), "finding"),
         (("作者承认的局限",), "author_limitation"),
         (("我发现的局限",), "reviewer_limitation"),
-        (("结论成立的条件",), "condition"),
+        (("结论成立的条件", "可靠性检查"), "condition"),
     ]
     for needles, kind in rules:
         if any(needle in cleaned for needle in needles):

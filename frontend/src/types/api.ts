@@ -298,6 +298,8 @@ export interface NoteItemDocument {
   note_revision: number
   paper_revision: number
   items: NoteItemSource[]
+  candidates: NoteAnalysisCandidate[]
+  warnings: string[]
   pending_candidate_count: number
 }
 

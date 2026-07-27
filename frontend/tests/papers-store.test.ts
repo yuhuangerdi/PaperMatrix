@@ -276,7 +276,15 @@ describe('paper store', () => {
             note_revision: 4,
             paper_revision: 3,
             items: [],
-            pending_candidate_count: 0,
+            candidates: [
+              {
+                candidate_id: 'candidate-id',
+                kind: 'method',
+                title: '核心思路',
+              },
+            ],
+            warnings: [],
+            pending_candidate_count: 1,
           }),
       })
       .mockResolvedValueOnce({
@@ -287,7 +295,7 @@ describe('paper store', () => {
     vi.stubGlobal('fetch', fetchMock)
     const store = usePaperStore()
 
-    await store.getNoteItems('project-id', 'paper-id')
+    const document = await store.getNoteItems('project-id', 'paper-id')
     await store.updateNoteItem(
       'project-id',
       'paper-id',
@@ -299,6 +307,8 @@ describe('paper store', () => {
     )
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/note/items')
+    expect(document.pending_candidate_count).toBe(1)
+    expect(document.candidates[0]?.title).toBe('核心思路')
     const request = fetchMock.mock.calls[1]?.[1] as RequestInit
     expect(request.method).toBe('PUT')
     expect(JSON.parse(String(request.body))).toEqual({
