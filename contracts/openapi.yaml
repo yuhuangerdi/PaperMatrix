@@ -459,6 +459,34 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PaperNote" }
         "409": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/papers/{paper_id}/note/supplement:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+    get:
+      operationId: getPaperSupplement
+      summary: 读取独立的个人补充笔记
+      responses:
+        "200":
+          description: Supplement note
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperNote" }
+    put:
+      operationId: updatePaperSupplement
+      summary: 使用独立 revision 保存个人补充笔记
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaperNoteUpdate" }
+      responses:
+        "200":
+          description: Saved supplement note
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperNote" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
   /projects/{project_id}/papers/{paper_id}/note/items:
     parameters:
       - $ref: "#/components/parameters/ProjectId"

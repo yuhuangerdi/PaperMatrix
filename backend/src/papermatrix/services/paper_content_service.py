@@ -99,6 +99,39 @@ class PaperContentService:
         )
         return content.save_note(project_id, note, expected_revision=expected_revision)
 
+    def get_supplement(self, project_id: UUID, paper_id: UUID) -> PaperNote:
+        projects, papers, content = self._repositories()
+        projects.load(project_id)
+        papers.load(project_id, paper_id)
+        existing = content.load_supplement(project_id, paper_id)
+        if existing is not None:
+            return existing
+        return PaperNote(
+            paper_id=paper_id,
+            markdown="",
+            revision=0,
+            updated_at=datetime.now(UTC),
+        )
+
+    def save_supplement(
+        self,
+        project_id: UUID,
+        paper_id: UUID,
+        *,
+        markdown: str,
+        expected_revision: int,
+    ) -> PaperNote:
+        projects, papers, content = self._repositories()
+        projects.load(project_id)
+        papers.load(project_id, paper_id)
+        note = PaperNote(
+            paper_id=paper_id,
+            markdown=markdown,
+            revision=expected_revision + 1,
+            updated_at=datetime.now(UTC),
+        )
+        return content.save_supplement(project_id, note, expected_revision=expected_revision)
+
     def get_questions(self, project_id: UUID, paper_id: UUID) -> QuestionsDocument:
         projects, papers, content = self._repositories()
         projects.load(project_id)

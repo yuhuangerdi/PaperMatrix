@@ -38,6 +38,9 @@ class PaperRepository:
     def _questions_file(self, project_id: UUID, paper_id: UUID) -> Path:
         return self._projects_root / str(project_id) / "questions" / f"{paper_id}.yaml"
 
+    def _supplement_file(self, project_id: UUID, paper_id: UUID) -> Path:
+        return self._projects_root / str(project_id) / "notes" / f"{paper_id}.supplement.md"
+
     def create(self, paper: Paper) -> Paper:
         atomic_write_yaml(
             self._paper_file(paper.project_id, paper.paper_id),
@@ -117,6 +120,11 @@ class PaperRepository:
                     note_path.unlink()
                     removed.append(note_path.name)
                 note_path.with_suffix(".md.lock").unlink(missing_ok=True)
+                supplement_path = self._supplement_file(project_id, paper_id)
+                if supplement_path.is_file():
+                    supplement_path.unlink()
+                    removed.append(supplement_path.name)
+                supplement_path.with_suffix(".md.lock").unlink(missing_ok=True)
                 questions_path = self._questions_file(project_id, paper_id)
                 if questions_path.is_file():
                     questions_path.unlink()

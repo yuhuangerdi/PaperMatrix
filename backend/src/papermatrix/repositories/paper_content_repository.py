@@ -37,25 +37,14 @@ class PaperContentRepository:
     def _note_file(self, project_id: UUID, paper_id: UUID) -> Path:
         return self._projects_root / str(project_id) / "notes" / f"{paper_id}.md"
 
+    def _supplement_file(self, project_id: UUID, paper_id: UUID) -> Path:
+        return self._projects_root / str(project_id) / "notes" / f"{paper_id}.supplement.md"
+
     def _questions_file(self, project_id: UUID, paper_id: UUID) -> Path:
         return self._projects_root / str(project_id) / "questions" / f"{paper_id}.yaml"
 
     def load_note(self, project_id: UUID, paper_id: UUID) -> PaperNote | None:
-        path = self._note_file(project_id, paper_id)
-        if not path.is_file():
-            return None
-        front_matter, body = self._parse_note(read_markdown(path))
-        if front_matter.paper_id != paper_id:
-            raise FileContentError(
-                "笔记中的 paper_id 与文件名不一致。",
-                details={"file": path.name},
-            )
-        return PaperNote(
-            paper_id=paper_id,
-            markdown=body,
-            revision=front_matter.revision,
-            updated_at=front_matter.updated_at,
-        )
+        return self._load_markdown_note(self._note_file(project_id, paper_id), paper_id)
 
     def save_note(
         self,
@@ -64,13 +53,27 @@ class PaperContentRepository:
         *,
         expected_revision: int,
     ) -> PaperNote:
-        path = self._note_file(project_id, note.paper_id)
-        content = self._serialize_note(note)
-        atomic_write_markdown(
-            path,
-            content,
+        self._save_markdown_note(
+            self._note_file(project_id, note.paper_id),
+            note,
             expected_revision=expected_revision,
-            revision_reader=lambda value: self._parse_note(value)[0].revision,
+        )
+        return note
+
+    def load_supplement(self, project_id: UUID, paper_id: UUID) -> PaperNote | None:
+        return self._load_markdown_note(self._supplement_file(project_id, paper_id), paper_id)
+
+    def save_supplement(
+        self,
+        project_id: UUID,
+        note: PaperNote,
+        *,
+        expected_revision: int,
+    ) -> PaperNote:
+        self._save_markdown_note(
+            self._supplement_file(project_id, note.paper_id),
+            note,
+            expected_revision=expected_revision,
         )
         return note
 
@@ -101,6 +104,36 @@ class PaperContentRepository:
             expected_revision=expected_revision,
         )
         return document
+
+    def _load_markdown_note(self, path: Path, paper_id: UUID) -> PaperNote | None:
+        if not path.is_file():
+            return None
+        front_matter, body = self._parse_note(read_markdown(path))
+        if front_matter.paper_id != paper_id:
+            raise FileContentError(
+                "笔记中的 paper_id 与文件名不一致。",
+                details={"file": path.name},
+            )
+        return PaperNote(
+            paper_id=paper_id,
+            markdown=body,
+            revision=front_matter.revision,
+            updated_at=front_matter.updated_at,
+        )
+
+    def _save_markdown_note(
+        self,
+        path: Path,
+        note: PaperNote,
+        *,
+        expected_revision: int,
+    ) -> None:
+        atomic_write_markdown(
+            path,
+            self._serialize_note(note),
+            expected_revision=expected_revision,
+            revision_reader=lambda value: self._parse_note(value)[0].revision,
+        )
 
     @staticmethod
     def _parse_note(content: str) -> tuple[_NoteFrontMatter, str]:

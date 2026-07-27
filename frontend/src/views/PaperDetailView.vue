@@ -38,9 +38,10 @@ import type {
   ReadingQuestion,
 } from '@/types/api'
 
-type DetailTab = 'overview' | 'note' | 'questions' | 'analysis'
+type DetailTab = 'overview' | 'note' | 'supplement' | 'questions' | 'analysis'
 type SaveState = 'loading' | 'saved' | 'dirty' | 'saving' | 'failed' | 'conflict'
 type NoteMode = 'document' | 'items'
+type SupplementDraft = { markdown: string; revision: number }
 
 const route = useRoute()
 const paperStore = usePaperStore()
@@ -52,6 +53,10 @@ const note = ref<PaperNote | null>(null)
 const noteDraft = ref('')
 const savedDraft = ref('')
 const noteState = ref<SaveState>('loading')
+const supplement = ref<PaperNote | null>(null)
+const supplementDraft = ref('')
+const savedSupplementDraft = ref('')
+const supplementState = ref<SaveState>('loading')
 const noteMode = ref<NoteMode>('document')
 const noteItems = ref<NoteItemDocument | null>(null)
 const selectedNoteItemId = ref<string | null>(null)
@@ -86,6 +91,7 @@ const editForm = ref({
 })
 const questionForm = ref<QuestionInput>(emptyQuestion())
 let saveTimer = 0
+let supplementSaveTimer = 0
 
 const noteStateLabel = computed(
   () =>
@@ -99,14 +105,34 @@ const noteStateLabel = computed(
     })[noteState.value],
 )
 const noteItemDirty = computed(() => noteItemDraft.value !== savedNoteItemDraft.value)
+const supplementStateLabel = computed(
+  () =>
+    ({
+      loading: '正在读取',
+      saved: '已保存',
+      dirty: '未保存',
+      saving: '保存中',
+      failed: '保存失败',
+      conflict: '存在版本冲突',
+    })[supplementState.value],
+)
 const hasUnsavedNote = computed(
-  () => ['dirty', 'saving', 'failed', 'conflict'].includes(noteState.value) || noteItemDirty.value,
+  () =>
+    ['dirty', 'saving', 'failed', 'conflict'].includes(noteState.value) ||
+    ['dirty', 'saving', 'failed', 'conflict'].includes(supplementState.value) ||
+    noteItemDirty.value,
 )
 const selectedNoteItem = computed(
   () => noteItems.value?.items.find((item) => item.item_id === selectedNoteItemId.value) ?? null,
 )
 const canSaveNoteItem = computed(
   () => noteItemDirty.value && selectedNoteItem.value?.sync_status === 'synced' && !busy.value,
+)
+const canSaveSupplement = computed(
+  () =>
+    supplementState.value !== 'saving' &&
+    supplementState.value !== 'conflict' &&
+    supplementDraft.value !== savedSupplementDraft.value,
 )
 const questionDirty = computed(
   () => questionOpen.value && JSON.stringify(questionForm.value) !== questionInitial.value,
@@ -153,23 +179,84 @@ function questionStatusLabel(status: QuestionStatus) {
   return { open: '待回答', answered: '已回答', deferred: '暂缓' }[status]
 }
 
+function supplementDraftKey() {
+  return `papermatrix.supplement-draft:${projectId.value}:${paperId.value}`
+}
+
+function saveSupplementDraft() {
+  if (!supplement.value || supplementDraft.value === savedSupplementDraft.value) {
+    localStorage.removeItem(supplementDraftKey())
+    return
+  }
+  const draft: SupplementDraft = {
+    markdown: supplementDraft.value,
+    revision: supplement.value.revision,
+  }
+  try {
+    localStorage.setItem(supplementDraftKey(), JSON.stringify(draft))
+  } catch {
+    errorMessage.value = '补充笔记草稿无法写入本地浏览器存储，请及时复制内容。'
+  }
+}
+
+function restoreSupplementDraft(remote: PaperNote) {
+  let draft: SupplementDraft | null = null
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(supplementDraftKey()) ?? 'null')
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      typeof (parsed as SupplementDraft).markdown === 'string' &&
+      typeof (parsed as SupplementDraft).revision === 'number'
+    ) {
+      draft = parsed as SupplementDraft
+    }
+  } catch {
+    localStorage.removeItem(supplementDraftKey())
+  }
+  supplement.value = remote
+  savedSupplementDraft.value = remote.markdown
+  if (draft === null || draft.markdown === remote.markdown) {
+    supplementDraft.value = remote.markdown
+    supplementState.value = 'saved'
+    localStorage.removeItem(supplementDraftKey())
+    return
+  }
+  supplementDraft.value = draft.markdown
+  if (draft.revision === remote.revision) {
+    supplementState.value = 'dirty'
+    successMessage.value = '已恢复未保存的个人补充笔记草稿。'
+  } else {
+    supplementState.value = 'conflict'
+    errorMessage.value = '个人补充笔记已在其他位置更新，请先复制本地草稿并重新加载后合并。'
+  }
+}
+
 async function loadAll() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const [paperResult, noteResult, questionResult, analysisResult, noteItemsResult] =
-      await Promise.all([
-        paperStore.get(projectId.value, paperId.value),
-        paperStore.getNote(projectId.value, paperId.value),
-        paperStore.getQuestions(projectId.value, paperId.value),
-        paperStore.getAnalysis(projectId.value, paperId.value),
-        paperStore.getNoteItems(projectId.value, paperId.value),
-      ])
+    const [
+      paperResult,
+      noteResult,
+      supplementResult,
+      questionResult,
+      analysisResult,
+      noteItemsResult,
+    ] = await Promise.all([
+      paperStore.get(projectId.value, paperId.value),
+      paperStore.getNote(projectId.value, paperId.value),
+      paperStore.getSupplement(projectId.value, paperId.value),
+      paperStore.getQuestions(projectId.value, paperId.value),
+      paperStore.getAnalysis(projectId.value, paperId.value),
+      paperStore.getNoteItems(projectId.value, paperId.value),
+    ])
     paper.value = paperResult
     note.value = noteResult
     noteDraft.value = noteResult.markdown
     savedDraft.value = noteResult.markdown
     noteState.value = 'saved'
+    restoreSupplementDraft(supplementResult)
     questions.value = questionResult
     analysis.value = analysisResult
     applyNoteItems(noteItemsResult)
@@ -177,6 +264,42 @@ async function loadAll() {
     errorMessage.value = error instanceof ApiError ? error.message : '无法读取论文详情。'
   } finally {
     loading.value = false
+  }
+}
+
+async function saveSupplement() {
+  if (
+    !supplement.value ||
+    supplementDraft.value === savedSupplementDraft.value ||
+    supplementState.value === 'saving' ||
+    supplementState.value === 'conflict'
+  ) {
+    return
+  }
+  window.clearTimeout(supplementSaveTimer)
+  const draftToSave = supplementDraft.value
+  supplementState.value = 'saving'
+  try {
+    const saved = await paperStore.saveSupplement(
+      projectId.value,
+      paperId.value,
+      draftToSave,
+      supplement.value.revision,
+    )
+    supplement.value = saved
+    savedSupplementDraft.value = saved.markdown
+    if (supplementDraft.value === saved.markdown) {
+      supplementState.value = 'saved'
+      localStorage.removeItem(supplementDraftKey())
+    } else {
+      supplementState.value = 'dirty'
+      supplementSaveTimer = window.setTimeout(() => void saveSupplement(), 1500)
+    }
+  } catch (error: unknown) {
+    supplementState.value =
+      error instanceof ApiError && error.code === 'PM-CONFLICT-001' ? 'conflict' : 'failed'
+    errorMessage.value =
+      error instanceof ApiError ? error.message : '个人补充笔记保存失败，草稿仍保留在当前页面。'
   }
 }
 
@@ -214,6 +337,11 @@ async function saveNote() {
 async function copyNote() {
   await navigator.clipboard.writeText(noteDraft.value)
   successMessage.value = '笔记草稿已复制。'
+}
+
+async function copySupplement() {
+  await navigator.clipboard.writeText(supplementDraft.value)
+  successMessage.value = '个人补充笔记草稿已复制。'
 }
 
 function selectInitialNoteItem(document: NoteItemDocument) {
@@ -598,6 +726,20 @@ watch(noteDraft, () => {
   window.clearTimeout(saveTimer)
   saveTimer = window.setTimeout(() => void saveNote(), 1500)
 })
+watch(supplementDraft, () => {
+  if (!supplement.value || supplementDraft.value === savedSupplementDraft.value) {
+    saveSupplementDraft()
+    return
+  }
+  if (supplementState.value === 'conflict') {
+    saveSupplementDraft()
+    return
+  }
+  supplementState.value = 'dirty'
+  saveSupplementDraft()
+  window.clearTimeout(supplementSaveTimer)
+  supplementSaveTimer = window.setTimeout(() => void saveSupplement(), 1500)
+})
 watch(
   () => questionForm.value.status,
   (status) => {
@@ -612,6 +754,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   window.clearTimeout(saveTimer)
+  window.clearTimeout(supplementSaveTimer)
   window.removeEventListener('beforeunload', handleBeforeUnload)
 })
 </script>
@@ -650,6 +793,9 @@ onBeforeUnmount(() => {
       </button>
       <button :class="{ active: activeTab === 'note' }" @click="activeTab = 'note'">
         <FileText :size="17" /> 结构化笔记
+      </button>
+      <button :class="{ active: activeTab === 'supplement' }" @click="activeTab = 'supplement'">
+        <Clipboard :size="17" /> 个人补充
       </button>
       <button :class="{ active: activeTab === 'questions' }" @click="activeTab = 'questions'">
         <FileQuestion :size="17" /> 问题
@@ -879,6 +1025,47 @@ onBeforeUnmount(() => {
           </template>
         </main>
       </div>
+    </section>
+
+    <section v-else-if="activeTab === 'supplement'" class="note-workspace">
+      <header class="note-toolbar">
+        <div>
+          <strong>个人补充笔记</strong>
+          <span class="save-state" :class="`save-state--${supplementState}`">
+            <Check v-if="supplementState === 'saved'" :size="14" />
+            <RefreshCw v-else-if="supplementState === 'saving'" :size="14" class="spin" />
+            {{ supplementStateLabel }}
+          </span>
+        </div>
+        <div>
+          <button
+            v-if="supplementState === 'failed' || supplementState === 'conflict'"
+            class="button button--secondary button--compact"
+            type="button"
+            @click="copySupplement"
+          >
+            <Clipboard :size="15" /> 复制草稿
+          </button>
+          <button
+            class="button button--primary button--compact"
+            type="button"
+            :disabled="!canSaveSupplement"
+            @click="saveSupplement"
+          >
+            <Save :size="15" /> 保存
+          </button>
+        </div>
+      </header>
+      <textarea
+        v-model="supplementDraft"
+        class="note-editor"
+        aria-label="个人补充笔记"
+        placeholder="记录自己的联想、待验证想法、阅读过程和后续行动。这里不会自动解析为分析条目。"
+        spellcheck="false"
+      />
+      <footer class="note-editor-footer">
+        独立保存，不参与结构化候选解析；发生冲突时请先复制草稿并重新加载后合并。
+      </footer>
     </section>
 
     <section v-else-if="activeTab === 'questions'" class="questions-workspace">

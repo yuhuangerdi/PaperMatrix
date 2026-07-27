@@ -151,6 +151,21 @@ export const usePaperStore = defineStore('papers', {
         timeoutMs: 15_000,
       })
     },
+    async getSupplement(projectId: string, paperId: string) {
+      return apiGet<PaperNote>(`/projects/${projectId}/papers/${paperId}/note/supplement`)
+    },
+    async saveSupplement(
+      projectId: string,
+      paperId: string,
+      markdown: string,
+      expectedRevision: number,
+    ) {
+      return apiRequest<PaperNote>(`/projects/${projectId}/papers/${paperId}/note/supplement`, {
+        method: 'PUT',
+        body: { markdown, expected_revision: expectedRevision },
+        timeoutMs: 15_000,
+      })
+    },
     async getNoteItems(projectId: string, paperId: string) {
       return apiGet<NoteItemDocument>(`/projects/${projectId}/papers/${paperId}/note/items`)
     },

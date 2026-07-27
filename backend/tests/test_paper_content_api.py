@@ -125,6 +125,33 @@ def test_saved_note_is_automatically_parsed_by_note_items_endpoint(tmp_path: Pat
     assert payload["items"] == []
 
 
+def test_supplement_is_saved_independently_with_revision_conflicts(tmp_path: Path) -> None:
+    client, workspace_root, project_id, paper_id = initialized_paper(tmp_path)
+    endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/note/supplement"
+
+    initial = client.get(endpoint)
+    assert initial.status_code == 200
+    assert initial.json()["markdown"] == ""
+    assert initial.json()["revision"] == 0
+
+    saved = client.put(
+        endpoint,
+        json={"markdown": "# 我的补充\n\n自由记录。", "expected_revision": 0},
+    )
+    assert saved.status_code == 200
+    assert saved.json()["revision"] == 1
+    supplement_file = (
+        workspace_root / "projects" / project_id / "notes" / f"{paper_id}.supplement.md"
+    )
+    assert supplement_file.is_file()
+    assert f"paper_id: {paper_id}" in supplement_file.read_text(encoding="utf-8")
+    assert not (workspace_root / "projects" / project_id / "notes" / f"{paper_id}.md").exists()
+
+    conflict = client.put(endpoint, json={"markdown": "过期草稿", "expected_revision": 0})
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "PM-CONFLICT-001"
+
+
 def test_question_create_answer_evidence_conflict_and_delete(tmp_path: Path) -> None:
     client, workspace_root, project_id, paper_id = initialized_paper(tmp_path)
     endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/questions"

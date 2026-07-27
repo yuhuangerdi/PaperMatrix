@@ -72,8 +72,12 @@
 
 - `GET /projects/{project_id}/papers/{paper_id}/note`
 - `PUT /projects/{project_id}/papers/{paper_id}/note`
+- `GET /projects/{project_id}/papers/{paper_id}/note/supplement`
+- `PUT /projects/{project_id}/papers/{paper_id}/note/supplement`
 
 未持久化的模板笔记返回 `revision: 0`，首次保存写入 `notes/<paper-id>.md` 并返回 revision 1。Markdown 文件包含 YAML front matter；API 的 `markdown` 字段只返回正文。
+
+个人补充笔记使用独立的 `notes/<paper-id>.supplement.md` 和 revision，首次读取返回空 Markdown 与 revision 0。它不参与结构化候选解析或论文 YAML 投影，保存、冲突和失败恢复与主笔记相互独立。
 
 ### 问题
 

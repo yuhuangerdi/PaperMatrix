@@ -276,6 +276,10 @@ revision: 1
     )
     note_path = workspace_root / "projects" / project_id / "notes" / f"{invalid_id}.md"
     note_path.write_text("# Legacy note\n", encoding="utf-8")
+    supplement_path = (
+        workspace_root / "projects" / project_id / "notes" / f"{invalid_id}.supplement.md"
+    )
+    supplement_path.write_text("# Legacy supplement\n", encoding="utf-8")
 
     listed = client.get(f"/api/v1/projects/{project_id}/papers")
 
@@ -301,6 +305,7 @@ revision: 1
     assert removed.json()["source_pdf_untouched"] is True
     assert not invalid_path.exists()
     assert not note_path.exists()
+    assert not supplement_path.exists()
     assert source.read_bytes() == original_bytes
     relisted = client.get(f"/api/v1/projects/{project_id}/papers").json()
     assert relisted["total"] == 1

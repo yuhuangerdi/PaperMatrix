@@ -138,6 +138,31 @@ describe('paper store', () => {
     })
   })
 
+  it('saves a supplement with an independent expected revision', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          paper_id: 'paper-id',
+          markdown: '补充记录',
+          revision: 1,
+          updated_at: '2026-07-27T00:00:00Z',
+        }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = usePaperStore()
+
+    await store.saveSupplement('project-id', 'paper-id', '补充记录', 0)
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/note/supplement')
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit
+    expect(JSON.parse(String(request.body))).toEqual({
+      markdown: '补充记录',
+      expected_revision: 0,
+    })
+  })
+
   it('creates a question in the current document revision', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

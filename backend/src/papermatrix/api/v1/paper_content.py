@@ -76,6 +76,21 @@ def save_note(
     return _service(request).save_note(project_id, paper_id, **payload.model_dump())
 
 
+@router.get("/projects/{project_id}/papers/{paper_id}/note/supplement", response_model=PaperNote)
+def get_supplement(project_id: UUID, paper_id: UUID, request: Request) -> PaperNote:
+    return _service(request).get_supplement(project_id, paper_id)
+
+
+@router.put("/projects/{project_id}/papers/{paper_id}/note/supplement", response_model=PaperNote)
+def save_supplement(
+    project_id: UUID,
+    paper_id: UUID,
+    payload: NoteUpdate,
+    request: Request,
+) -> PaperNote:
+    return _service(request).save_supplement(project_id, paper_id, **payload.model_dump())
+
+
 @router.post(
     "/projects/{project_id}/papers/{paper_id}/analysis/parse-note",
     response_model=NoteParsePreview,
