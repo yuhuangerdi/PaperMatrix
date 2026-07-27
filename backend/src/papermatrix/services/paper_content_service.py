@@ -113,7 +113,7 @@ class PaperContentService:
         warnings: list[str] = []
         if note is None:
             note = self.get_note(project_id, paper_id)
-            warnings.append("笔记尚未保存, 当前模板没有可确认的分析内容。")
+            warnings.append("当前显示尚未保存的默认模板。请先填写并保存笔记后再解析分析候选。")
         candidates = parse_note_candidates(
             paper_id,
             note.markdown,

@@ -68,6 +68,9 @@ def test_parses_filled_sections_tables_and_evidence_deterministically() -> None:
 
 def test_ignores_unfilled_template_placeholders_and_marks_duplicates() -> None:
     markdown = """## 3. 本文解决思路和整体框架
+### 3.2 整体框架
+输入 → 模块 A → 模块 B → 模块 C → 输出
+
 ### 3.3 框架组成
 | 模块 | 输入 | 处理过程 | 输出 | 作用 |
 |---|---|---|---|---|
@@ -77,6 +80,10 @@ def test_ignores_unfilled_template_placeholders_and_marks_duplicates() -> None:
 ### 5.2 创新点 1
 - 针对的挑战：
 - 做了什么：保存失败上下文
+
+## 6. 具体流程和技术细节
+### 6.10 关键实现细节
+记录删除后可能导致方案失效或实验不可复现的细节。
 """
     candidates = parse_note_candidates(PAPER_ID, markdown, [])
     assert len(candidates) == 1

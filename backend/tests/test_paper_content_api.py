@@ -67,6 +67,24 @@ def test_note_template_save_and_revision_conflict(tmp_path: Path) -> None:
     assert "stale overwrite" not in note_path.read_text(encoding="utf-8")
 
 
+def test_unsaved_default_note_does_not_expose_template_examples_as_candidates(
+    tmp_path: Path,
+) -> None:
+    client, workspace_root, project_id, paper_id = initialized_paper(tmp_path)
+    analysis_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/analysis"
+
+    preview = client.post(f"{analysis_endpoint}/parse-note")
+
+    assert preview.status_code == 200
+    payload = preview.json()
+    assert payload["note_revision"] == 0
+    assert payload["candidates"] == []
+    assert payload["warnings"] == [
+        "当前显示尚未保存的默认模板。请先填写并保存笔记后再解析分析候选。"
+    ]
+    assert not list((workspace_root / "projects" / project_id / "notes").glob("*.md"))
+
+
 def test_question_create_answer_evidence_conflict_and_delete(tmp_path: Path) -> None:
     client, workspace_root, project_id, paper_id = initialized_paper(tmp_path)
     endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/questions"

@@ -85,7 +85,7 @@ function kindLabel(kind: AnalysisItemKind) {
           <button
             class="button button--secondary button--compact"
             type="button"
-            :disabled="busy"
+            :disabled="busy || eligibleIds.length === 0"
             @click="toggleAll"
           >
             <CheckSquare2 :size="15" /> {{ allSelected ? '取消全选' : '选择全部' }}
