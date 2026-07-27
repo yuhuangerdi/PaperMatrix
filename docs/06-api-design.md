@@ -75,7 +75,7 @@
 - `GET /projects/{project_id}/papers/{paper_id}/note/supplement`
 - `PUT /projects/{project_id}/papers/{paper_id}/note/supplement`
 
-未持久化的模板笔记返回 `revision: 0`，首次保存写入 `notes/<paper-id>.md` 并返回 revision 1。Markdown 文件包含 YAML front matter；API 的 `markdown` 字段只返回正文。
+新论文登记成功时立即把默认模板写入 `notes/<paper-id>.md`，初始 revision 为 1。已有书目信息只在这次创建中写入第 0 节；之后编辑论文基础信息不会反向覆盖用户的 Markdown。为兼容旧记录，缺少笔记文件时 `GET` 仍可返回 revision 0 的临时模板。Markdown 文件包含 YAML front matter；API 的 `markdown` 字段只返回正文。
 
 个人补充笔记使用独立的 `notes/<paper-id>.supplement.md` 和 revision，首次读取返回空 Markdown 与 revision 0。它不参与结构化候选解析或论文 YAML 投影，保存、冲突和失败恢复与主笔记相互独立。
 
@@ -99,11 +99,11 @@
 - `POST .../analysis/parse-note` 读取当前笔记，返回候选、来源标题、行号、证据和重复状态，不写任何文件；
 - `POST .../analysis/import-candidates` 同时校验预览时的笔记 revision 与论文 revision，重新解析并验证候选 ID，再为选中且非重复的条目写入 Markdown 稳定锚点和论文 YAML 投影；响应同时返回更新后的笔记，客户端必须同步正文与 revision。
 
-尚未保存的默认模板返回 revision 0、空候选和填写提示。解析器必须忽略模板自带的示例流程、占位模块和填写说明，不得将脚手架内容写入论文分析投影。
+新建论文的已保存默认模板返回空候选；兼容旧记录的临时模板返回 revision 0。解析器必须忽略模板自带的示例流程、占位模块和填写说明，不得将脚手架内容写入论文分析投影。
 
 候选在论文详情加载和每次笔记保存后的 `GET .../note/items` 中自动生成，该响应同时包含 `candidates`、`warnings` 和待审阅数量。用户打开审阅窗口不会触发首次解析，只读取这份自动解析结果；手动 `parse-note` 端点保留用于兼容和显式刷新。
 
-默认粒度以三级/四级语义标题块为一条，块内段落、列表、键值和表格整体保持在同一条目；不会把表格数据行拆成多个条目。第 0、9、10、11、12 节分别作为元数据、关系候选、写作用途、证据和阅读问题来源，不复制成普通分析条目。
+默认粒度以三级/四级语义标题块为一条，块内段落、列表、键值和表格整体保持在同一条目；不会把表格数据行拆成多个条目。“2.2 代表性顶会顶刊文献”是明确的组合块：三级标题形成一个 `related_work` 条目，文献 A/B/C 等四级标题保留为其内部属性。第 0、9、10、11、12 节分别作为元数据、关系候选、写作用途、证据和阅读问题来源，不复制成普通分析条目。
 
 首次候选 ID 由论文、类型、来源和内容确定性生成。确认后的 `item_id` 复用该 ID，并写入不影响渲染的来源锚点；后续解析优先从锚点恢复 ID，因此正文编辑不会改变条目身份。投影保存固定章节、章节内顺序和来源笔记 revision，但不会覆盖用户之后的人工修改。
 
@@ -111,9 +111,10 @@
 
 完整文档/条目双模式使用以下端点：
 
-- `GET .../note/items` 自动解析当前 Markdown，返回候选、警告、待审阅数量，以及确认条目的当前片段、来源指纹和 `synced`、`review_required` 或 `missing` 状态；
+- `GET .../note/items` 自动解析当前 Markdown，返回新增/修改候选、删除候选、警告、待审阅数量，以及确认条目的当前片段、来源指纹和 `synced`、`review_required` 或 `missing` 状态；
 - `PUT .../note/items/{item_id}` 同时校验两份 revision 与来源指纹，只替换该稳定锚点对应片段，再保存 Markdown 和论文 YAML 投影；
-- 外部 Markdown 修改由 `parse-note` 返回 `new`、`modified` 或 `unchanged` 候选，`import-candidates` 只同步用户明确选择的新增或修改候选，并返回新增、已同步及被整表候选替换的旧条目 ID。
+- `POST .../note/items/delete` 批量删除用户明确选择的完整 Markdown 标题块和对应 YAML 投影；
+- 外部 Markdown 修改由 `parse-note` 返回 `new`、`modified`、`unchanged` 和 `removals`，`import-candidates` 只同步用户明确选择的新增、修改或删除项，并返回新增、已同步、已删除及被组合候选替换的旧条目 ID。
 
 ### 关系和研究空白
 

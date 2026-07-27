@@ -5,6 +5,7 @@ import type {
   AnalysisItemInput,
   CandidateImportResult,
   InvalidPaperRecord,
+  NoteItemDeleteResult,
   NoteItemDocument,
   NoteItemUpdateResult,
   NoteParsePreview,
@@ -207,6 +208,7 @@ export const usePaperStore = defineStore('papers', {
       projectId: string,
       paperId: string,
       candidateIds: string[],
+      removalItemIds: string[],
       expectedNoteRevision: number,
       expectedPaperRevision: number,
     ) {
@@ -216,6 +218,26 @@ export const usePaperStore = defineStore('papers', {
           method: 'POST',
           body: {
             candidate_ids: candidateIds,
+            removal_item_ids: removalItemIds,
+            expected_note_revision: expectedNoteRevision,
+            expected_paper_revision: expectedPaperRevision,
+          },
+        },
+      )
+    },
+    async deleteNoteItems(
+      projectId: string,
+      paperId: string,
+      itemIds: string[],
+      expectedNoteRevision: number,
+      expectedPaperRevision: number,
+    ) {
+      return apiRequest<NoteItemDeleteResult>(
+        `/projects/${projectId}/papers/${paperId}/note/items/delete`,
+        {
+          method: 'POST',
+          body: {
+            item_ids: itemIds,
             expected_note_revision: expectedNoteRevision,
             expected_paper_revision: expectedPaperRevision,
           },

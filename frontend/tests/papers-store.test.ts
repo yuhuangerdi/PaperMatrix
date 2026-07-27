@@ -249,6 +249,7 @@ describe('paper store', () => {
             note_revision: 3,
             paper_revision: 2,
             candidates: [],
+            removals: [],
             warnings: [],
           }),
       })
@@ -273,6 +274,7 @@ describe('paper store', () => {
             synchronized_items: [],
             skipped_candidate_ids: [],
             superseded_item_ids: ['legacy-row-id'],
+            deleted_item_ids: ['removed-item-id'],
           }),
       })
     vi.stubGlobal('fetch', fetchMock)
@@ -283,6 +285,7 @@ describe('paper store', () => {
       'project-id',
       'paper-id',
       ['candidate-id'],
+      ['removed-item-id'],
       3,
       2,
     )
@@ -292,6 +295,7 @@ describe('paper store', () => {
     const request = fetchMock.mock.calls[1]?.[1] as RequestInit
     expect(JSON.parse(String(request.body))).toEqual({
       candidate_ids: ['candidate-id'],
+      removal_item_ids: ['removed-item-id'],
       expected_note_revision: 3,
       expected_paper_revision: 2,
     })
@@ -316,6 +320,7 @@ describe('paper store', () => {
                 title: '核心思路',
               },
             ],
+            removals: [],
             warnings: [],
             pending_candidate_count: 1,
           }),
@@ -349,6 +354,41 @@ describe('paper store', () => {
       expected_note_revision: 4,
       expected_paper_revision: 3,
       expected_source_fingerprint: 'a'.repeat(64),
+    })
+  })
+
+  it('deletes selected note items with both document revisions', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          note: {
+            paper_id: 'paper-id',
+            markdown: '# Note',
+            revision: 5,
+            updated_at: '2026-07-27T00:00:00Z',
+          },
+          analysis: {
+            paper_id: 'paper-id',
+            revision: 4,
+            updated_at: '2026-07-27T00:00:00Z',
+            items: [],
+          },
+          deleted_item_ids: ['item-a', 'item-b'],
+        }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = usePaperStore()
+
+    const result = await store.deleteNoteItems('project-id', 'paper-id', ['item-a', 'item-b'], 4, 3)
+
+    expect(result.deleted_item_ids).toEqual(['item-a', 'item-b'])
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit
+    expect(JSON.parse(String(request.body))).toEqual({
+      item_ids: ['item-a', 'item-b'],
+      expected_note_revision: 4,
+      expected_paper_revision: 3,
     })
   })
 })

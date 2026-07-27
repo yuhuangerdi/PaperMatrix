@@ -1762,13 +1762,17 @@ h1 {
 }
 
 .note-item-mode {
+  height: min(720px, calc(100vh - 250px));
   min-height: 520px;
   display: grid;
   grid-template-columns: minmax(240px, 30%) minmax(0, 1fr);
 }
 
 .note-item-list {
-  overflow-y: auto;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
   border-right: 1px solid var(--line);
 }
 
@@ -1790,27 +1794,51 @@ h1 {
   color: var(--ink-soft);
 }
 
+.note-item-bulk-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.note-item-list-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.note-item-list-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  padding-left: 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.note-item-list-row > input {
+  margin-top: 17px;
+}
+
 .note-item-list-entry {
   width: 100%;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  padding: 14px 16px;
+  padding: 14px 16px 14px 8px;
   color: inherit;
   text-align: left;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--line-soft);
   cursor: pointer;
 }
 
-.note-item-list-entry:hover,
-.note-item-list-entry.active {
+.note-item-list-row:hover,
+.note-item-list-row.active {
   background: #f2f7f4;
 }
 
-.note-item-list-entry.active {
+.note-item-list-row.active {
   box-shadow: inset 3px 0 0 var(--teal);
 }
 
@@ -1874,6 +1902,12 @@ h1 {
   overflow-wrap: anywhere;
   color: var(--ink-soft);
   text-align: right;
+}
+
+.note-item-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .note-item-editor {
@@ -2098,6 +2132,7 @@ h1 {
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: 6px;
+  scrollbar-gutter: stable;
 }
 
 .candidate-review-list > label {
@@ -2158,6 +2193,22 @@ h1 {
 .candidate-review-item--duplicate {
   background: #f5f7f6;
   cursor: default !important;
+}
+
+.candidate-review-item--removal {
+  background: #fff8f7;
+}
+
+.removal-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px;
+  color: var(--danger);
+  background: #fde9e6;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .duplicate-state {
@@ -2673,11 +2724,12 @@ h1 {
   }
 
   .note-item-mode {
+    height: auto;
     grid-template-columns: minmax(0, 1fr);
   }
 
   .note-item-list {
-    max-height: 280px;
+    height: 280px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }

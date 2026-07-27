@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckSquare2, RefreshCw, X } from 'lucide-vue-next'
+import { CheckSquare2, RefreshCw, Trash2, X } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 
 import type { AnalysisItemKind, NoteParsePreview } from '@/types/api'
@@ -11,10 +11,11 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: []
   refresh: []
-  import: [candidateIds: string[]]
+  import: [candidateIds: string[], removalItemIds: string[]]
 }>()
 
 const selectedIds = ref<string[]>([])
+const selectedRemovalIds = ref<string[]>([])
 const eligibleIds = computed(() =>
   props.preview.candidates
     .filter((candidate) => candidate.sync_status !== 'unchanged')
@@ -28,6 +29,7 @@ watch(
   () => props.preview,
   () => {
     selectedIds.value = [...eligibleIds.value]
+    selectedRemovalIds.value = []
   },
   { immediate: true },
 )
@@ -94,11 +96,14 @@ function kindLabel(kind: AnalysisItemKind) {
           </button>
         </div>
 
-        <div v-if="preview.candidates.length === 0" class="empty-state empty-state--compact">
+        <div
+          v-if="preview.candidates.length === 0 && preview.removals.length === 0"
+          class="empty-state empty-state--compact"
+        >
           <h2>没有可审阅的候选</h2>
           <p>填写模板中的结构化标题、列表或表格后保存笔记，再重新解析。</p>
         </div>
-        <div v-else class="candidate-review-list">
+        <div v-else class="candidate-review-list" tabindex="0">
           <label
             v-for="candidate in preview.candidates"
             :key="candidate.candidate_id"
@@ -137,11 +142,39 @@ function kindLabel(kind: AnalysisItemKind) {
               </small>
             </span>
           </label>
+          <label
+            v-for="removal in preview.removals"
+            :key="removal.item_id"
+            class="candidate-review-item--removal"
+          >
+            <input
+              v-model="selectedRemovalIds"
+              type="checkbox"
+              :value="removal.item_id"
+              :disabled="busy"
+            />
+            <span class="candidate-review-content">
+              <span class="candidate-review-meta">
+                <span class="analysis-kind">{{ kindLabel(removal.kind) }}</span>
+                <span class="removal-state"><Trash2 :size="13" /> 正文已删除</span>
+              </span>
+              <strong>{{ removal.title }}</strong>
+              <span class="candidate-summary">
+                对应内容已不在完整 Markdown 中。勾选后会删除旧的结构化投影。
+              </span>
+              <small>
+                {{ removal.section_title || '未绑定章节' }}
+                <template v-if="removal.section_order">
+                  · 第 {{ removal.section_order }} 条</template
+                >
+              </small>
+            </span>
+          </label>
         </div>
       </div>
 
       <footer>
-        <span>表格随所属标题块整体保存；旧版逐行条目只在确认后合并。</span>
+        <span>新增和更新默认选中；删除项需明确勾选后才会移除。</span>
         <div>
           <button
             class="button button--secondary"
@@ -154,10 +187,13 @@ function kindLabel(kind: AnalysisItemKind) {
           <button
             class="button button--primary"
             type="button"
-            :disabled="busy || selectedIds.length === 0"
-            @click="emit('import', selectedIds)"
+            :disabled="busy || selectedIds.length + selectedRemovalIds.length === 0"
+            @click="emit('import', selectedIds, selectedRemovalIds)"
           >
-            确认导入 {{ selectedIds.length }} 条
+            确认 {{ selectedIds.length }} 项更新
+            <span v-if="selectedRemovalIds.length">
+              、删除 {{ selectedRemovalIds.length }} 项
+            </span>
           </button>
         </div>
       </footer>

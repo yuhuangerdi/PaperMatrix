@@ -31,11 +31,21 @@ class NoteAnalysisCandidate(BaseModel):
     superseded_item_ids: list[UUID] = Field(default_factory=list)
 
 
+class NoteAnalysisRemoval(BaseModel):
+    item_id: UUID
+    kind: AnalysisItemKind
+    title: str = Field(min_length=1, max_length=300)
+    section_key: str | None = Field(default=None, max_length=40)
+    section_title: str | None = Field(default=None, max_length=300)
+    section_order: int | None = Field(default=None, ge=1)
+
+
 class NoteParsePreview(BaseModel):
     paper_id: UUID
     note_revision: int = Field(ge=0)
     paper_revision: int = Field(ge=1)
     candidates: list[NoteAnalysisCandidate]
+    removals: list[NoteAnalysisRemoval] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -46,6 +56,7 @@ class CandidateImportResult(BaseModel):
     synchronized_items: list[AnalysisItem]
     skipped_candidate_ids: list[UUID]
     superseded_item_ids: list[UUID] = Field(default_factory=list)
+    deleted_item_ids: list[UUID] = Field(default_factory=list)
 
 
 class NoteItemSource(BaseModel):
@@ -66,6 +77,7 @@ class NoteItemDocument(BaseModel):
     paper_revision: int = Field(ge=1)
     items: list[NoteItemSource]
     candidates: list[NoteAnalysisCandidate]
+    removals: list[NoteAnalysisRemoval] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     pending_candidate_count: int = Field(ge=0)
 
@@ -74,3 +86,9 @@ class NoteItemUpdateResult(BaseModel):
     note: PaperNote
     analysis: PaperAnalysisDocument
     item: AnalysisItem
+
+
+class NoteItemDeleteResult(BaseModel):
+    note: PaperNote
+    analysis: PaperAnalysisDocument
+    deleted_item_ids: list[UUID]

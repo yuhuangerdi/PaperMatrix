@@ -1,3 +1,5 @@
+# ruff: noqa: RUF001
+
 import hashlib
 from pathlib import Path
 
@@ -73,6 +75,11 @@ def test_scan_import_duplicate_status_and_metadata_only_delete(tmp_path: Path) -
     assert paper["source"]["path"] == str(source.resolve())
     assert paper["source"]["status"] == "available"
     assert not list(workspace_root.rglob("*.pdf"))
+    note_endpoint = f"/api/v1/projects/{project_id}/papers/{paper['paper_id']}/note"
+    initial_note = client.get(note_endpoint).json()
+    assert initial_note["revision"] == 1
+    assert "- 完整标题：Reliable Agents" in initial_note["markdown"]
+    assert "- 作者：Researcher" in initial_note["markdown"]
 
     updated = client.patch(
         f"/api/v1/projects/{project_id}/papers/{paper['paper_id']}",
@@ -95,6 +102,9 @@ def test_scan_import_duplicate_status_and_metadata_only_delete(tmp_path: Path) -
     assert updated.json()["bibliography"]["affiliations"] == ["Xidian University"]
     assert updated.json()["organization"]["group"] == "核心文献"
     assert updated.json()["revision"] == 2
+    note_after_metadata_edit = client.get(note_endpoint).json()
+    assert note_after_metadata_edit == initial_note
+    assert "Xidian University" not in note_after_metadata_edit["markdown"]
 
     duplicate = client.post(f"/api/v1/projects/{project_id}/papers/import", json=payload)
     assert duplicate.status_code == 201

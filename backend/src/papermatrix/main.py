@@ -60,16 +60,17 @@ def create_app(
     app.state.settings = active_settings
     app.state.workspace_service = workspace_service
     app.state.project_service = ProjectService(workspace_service, schemas)
-    app.state.paper_service = PaperService(
-        workspace_service,
-        schemas,
-        max_scan_files=active_settings.max_scan_files,
-        max_upload_bytes=active_settings.max_upload_bytes,
-    )
     app.state.paper_content_service = PaperContentService(
         workspace_service,
         schemas,
         repository_root / "templates" / "paper-note-template.md",
+    )
+    app.state.paper_service = PaperService(
+        workspace_service,
+        schemas,
+        app.state.paper_content_service,
+        max_scan_files=active_settings.max_scan_files,
+        max_upload_bytes=active_settings.max_upload_bytes,
     )
     app.add_exception_handler(PaperMatrixError, papermatrix_error_handler)
     app.add_middleware(

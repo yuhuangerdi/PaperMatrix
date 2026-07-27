@@ -29,6 +29,7 @@ from papermatrix.domain.paper import (
 from papermatrix.domain.paper_content import EvidenceReference
 from papermatrix.repositories.paper_repository import PaperRepository
 from papermatrix.repositories.project_repository import ProjectRepository
+from papermatrix.services.paper_content_service import PaperContentService
 from papermatrix.services.pdf_inspector import inspect_path, inspect_upload
 from papermatrix.services.workspace_service import WorkspaceService
 
@@ -49,12 +50,14 @@ class PaperService:
         self,
         workspace: WorkspaceService,
         schemas: SchemaRegistry,
+        content: PaperContentService,
         *,
         max_scan_files: int,
         max_upload_bytes: int,
     ) -> None:
         self._workspace = workspace
         self._schemas = schemas
+        self._content = content
         self._max_scan_files = max_scan_files
         self._max_upload_bytes = max_upload_bytes
         self._scans: dict[str, dict[str, Path]] = {}
@@ -137,13 +140,14 @@ class PaperService:
             path,
             strict_hashing=self._workspace.require_workspace().settings.strict_hashing,
         )
-        return papers.create(
+        return self._create_with_initial_note(
+            papers,
             Paper.create(
                 project_id=project_id,
                 source=source,
                 title=metadata.title or path.stem,
                 authors=metadata.authors,
-            )
+            ),
         )
 
     def upload(
@@ -161,7 +165,8 @@ class PaperService:
         if Path(filename).suffix.lower() != ".pdf":
             raise PaperConflictError("只能上传 PDF 文件。")
         source, metadata = inspect_upload(filename, content)
-        return papers.create(
+        return self._create_with_initial_note(
+            papers,
             Paper.create(
                 project_id=project_id,
                 source=source,
@@ -171,19 +176,29 @@ class PaperService:
                     else metadata.title or Path(filename).stem
                 ),
                 authors=metadata.authors,
-            )
+            ),
         )
 
     def create_manual(self, project_id: UUID, *, title: str) -> Paper:
         projects, papers = self._repositories()
         projects.load(project_id)
-        return papers.create(
+        return self._create_with_initial_note(
+            papers,
             Paper.create(
                 project_id=project_id,
                 source=PaperSource(status="unlinked"),
                 title=title.strip(),
-            )
+            ),
         )
+
+    def _create_with_initial_note(
+        self,
+        papers: PaperRepository,
+        paper: Paper,
+    ) -> Paper:
+        created = papers.create(paper)
+        self._content.initialize_note(created.project_id, created)
+        return created
 
     def get(self, project_id: UUID, paper_id: UUID) -> Paper:
         projects, papers = self._repositories()

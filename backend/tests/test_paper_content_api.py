@@ -1,3 +1,5 @@
+# ruff: noqa: RUF001
+
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -43,31 +45,32 @@ def test_note_template_save_and_revision_conflict(tmp_path: Path) -> None:
 
     initial = client.get(endpoint)
     assert initial.status_code == 200
-    assert initial.json()["revision"] == 0
+    assert initial.json()["revision"] == 1
     assert "# Evidence First Research" in initial.json()["markdown"]
-    assert not list((workspace_root / "projects" / project_id / "notes").glob("*.md"))
+    assert "- 完整标题：Evidence First Research" in initial.json()["markdown"]
+    assert list((workspace_root / "projects" / project_id / "notes").glob("*.md"))
 
     saved = client.put(
         endpoint,
-        json={"markdown": "# My note\n\nEvidence on page 3.", "expected_revision": 0},
+        json={"markdown": "# My note\n\nEvidence on page 3.", "expected_revision": 1},
     )
     assert saved.status_code == 200
-    assert saved.json()["revision"] == 1
+    assert saved.json()["revision"] == 2
     note_path = workspace_root / "projects" / project_id / "notes" / f"{paper_id}.md"
     persisted = note_path.read_text(encoding="utf-8")
-    assert "revision: 1" in persisted
+    assert "revision: 2" in persisted
     assert "# My note" in persisted
 
     stale = client.put(
         endpoint,
-        json={"markdown": "stale overwrite", "expected_revision": 0},
+        json={"markdown": "stale overwrite", "expected_revision": 1},
     )
     assert stale.status_code == 409
     assert stale.json()["error"]["code"] == "PM-CONFLICT-001"
     assert "stale overwrite" not in note_path.read_text(encoding="utf-8")
 
 
-def test_unsaved_default_note_does_not_expose_template_examples_as_candidates(
+def test_persisted_default_note_does_not_expose_template_examples_as_candidates(
     tmp_path: Path,
 ) -> None:
     client, workspace_root, project_id, paper_id = initialized_paper(tmp_path)
@@ -77,18 +80,15 @@ def test_unsaved_default_note_does_not_expose_template_examples_as_candidates(
 
     assert preview.status_code == 200
     payload = preview.json()
-    assert payload["note_revision"] == 0
+    assert payload["note_revision"] == 1
     assert payload["candidates"] == []
-    assert payload["warnings"] == [
-        "当前显示尚未保存的默认模板。请先填写并保存笔记后再解析分析候选。"
-    ]
+    assert payload["removals"] == []
+    assert payload["warnings"] == ["没有找到已填写的结构化内容, 请检查模板标题和内容。"]
     item_document = client.get(f"/api/v1/projects/{project_id}/papers/{paper_id}/note/items").json()
     assert item_document["candidates"] == []
     assert item_document["pending_candidate_count"] == 0
-    assert item_document["warnings"] == [
-        "当前显示尚未保存的默认模板。请先填写并保存笔记后再审阅分析候选。"
-    ]
-    assert not list((workspace_root / "projects" / project_id / "notes").glob("*.md"))
+    assert item_document["warnings"] == ["没有找到已填写的结构化内容。"]
+    assert list((workspace_root / "projects" / project_id / "notes").glob("*.md"))
 
 
 def test_saved_note_is_automatically_parsed_by_note_items_endpoint(tmp_path: Path) -> None:
@@ -107,7 +107,7 @@ def test_saved_note_is_automatically_parsed_by_note_items_endpoint(tmp_path: Pat
 """
     saved = client.put(
         note_endpoint,
-        json={"markdown": markdown, "expected_revision": 0},
+        json={"markdown": markdown, "expected_revision": 1},
     )
     assert saved.status_code == 200
 
@@ -115,7 +115,7 @@ def test_saved_note_is_automatically_parsed_by_note_items_endpoint(tmp_path: Pat
 
     assert document.status_code == 200
     payload = document.json()
-    assert payload["note_revision"] == 1
+    assert payload["note_revision"] == 2
     assert payload["pending_candidate_count"] == 2
     assert payload["warnings"] == []
     assert [candidate["kind"] for candidate in payload["candidates"]] == [
@@ -177,7 +177,7 @@ def test_confirming_grouped_table_candidate_consolidates_legacy_row_items(
 """
     saved = client.put(
         note_endpoint,
-        json={"markdown": markdown, "expected_revision": 0},
+        json={"markdown": markdown, "expected_revision": 1},
     )
     assert saved.status_code == 200
 
@@ -196,7 +196,7 @@ def test_confirming_grouped_table_candidate_consolidates_legacy_row_items(
         f"{analysis_endpoint}/import-candidates",
         json={
             "candidate_ids": [candidate["candidate_id"]],
-            "expected_note_revision": 1,
+            "expected_note_revision": 2,
             "expected_paper_revision": 3,
         },
     )
@@ -241,7 +241,7 @@ def test_supplement_is_saved_independently_with_revision_conflicts(tmp_path: Pat
     )
     assert supplement_file.is_file()
     assert f"paper_id: {paper_id}" in supplement_file.read_text(encoding="utf-8")
-    assert not (workspace_root / "projects" / project_id / "notes" / f"{paper_id}.md").exists()
+    assert (workspace_root / "projects" / project_id / "notes" / f"{paper_id}.md").exists()
 
     conflict = client.put(endpoint, json={"markdown": "过期草稿", "expected_revision": 0})
     assert conflict.status_code == 409
@@ -438,7 +438,7 @@ def test_note_candidate_preview_confirm_duplicate_and_stale_protection(tmp_path:
 """
     saved = client.put(
         note_endpoint,
-        json={"markdown": markdown, "expected_revision": 0},
+        json={"markdown": markdown, "expected_revision": 1},
     )
     assert saved.status_code == 200
     note_path = workspace_root / "projects" / project_id / "notes" / f"{paper_id}.md"
@@ -449,7 +449,7 @@ def test_note_candidate_preview_confirm_duplicate_and_stale_protection(tmp_path:
     preview = client.post(f"{analysis_endpoint}/parse-note")
     assert preview.status_code == 200
     body = preview.json()
-    assert body["note_revision"] == 1
+    assert body["note_revision"] == 2
     assert body["paper_revision"] == 1
     assert [item["kind"] for item in body["candidates"]] == ["method", "author_limitation"]
     assert note_path.read_bytes() == note_before
@@ -460,7 +460,7 @@ def test_note_candidate_preview_confirm_duplicate_and_stale_protection(tmp_path:
         f"{analysis_endpoint}/import-candidates",
         json={
             "candidate_ids": [selected_id],
-            "expected_note_revision": 1,
+            "expected_note_revision": 2,
             "expected_paper_revision": 1,
         },
     )
@@ -473,8 +473,8 @@ def test_note_candidate_preview_confirm_duplicate_and_stale_protection(tmp_path:
     assert item["section_title"] == "3. 本文解决思路和整体框架"
     assert item["section_order"] == 1
     assert item["source_anchor"] == f"papermatrix:item:{selected_id}"
-    assert item["source_note_revision"] == 2
-    assert result["note"]["revision"] == 2
+    assert item["source_note_revision"] == 3
+    assert result["note"]["revision"] == 3
     assert f"<!-- papermatrix:item:{selected_id} -->" in result["note"]["markdown"]
     assert "使用证据反馈重新规划失败任务。" in result["note"]["markdown"]
     assert note_path.read_bytes() != note_before
@@ -488,7 +488,7 @@ def test_note_candidate_preview_confirm_duplicate_and_stale_protection(tmp_path:
         f"{analysis_endpoint}/import-candidates",
         json={
             "candidate_ids": [selected_id],
-            "expected_note_revision": 2,
+            "expected_note_revision": 3,
             "expected_paper_revision": 2,
         },
     )
@@ -498,14 +498,14 @@ def test_note_candidate_preview_confirm_duplicate_and_stale_protection(tmp_path:
 
     changed_note = client.put(
         note_endpoint,
-        json={"markdown": f"{result['note']['markdown']}\n更新", "expected_revision": 2},
+        json={"markdown": f"{result['note']['markdown']}\n更新", "expected_revision": 3},
     )
     assert changed_note.status_code == 200
     stale = client.post(
         f"{analysis_endpoint}/import-candidates",
         json={
             "candidate_ids": [body["candidates"][1]["candidate_id"]],
-            "expected_note_revision": 2,
+            "expected_note_revision": 3,
             "expected_paper_revision": 2,
         },
     )
@@ -531,14 +531,14 @@ def test_note_item_mode_updates_only_anchored_fragment_and_rejects_stale_edit(
 ### 8.2 作者承认的局限
 只在三个公开基准上验证。
 """
-    client.put(note_endpoint, json={"markdown": markdown, "expected_revision": 0})
+    client.put(note_endpoint, json={"markdown": markdown, "expected_revision": 1})
     preview = client.post(f"{analysis_endpoint}/parse-note").json()
     method_id = preview["candidates"][0]["candidate_id"]
     imported = client.post(
         f"{analysis_endpoint}/import-candidates",
         json={
             "candidate_ids": [method_id],
-            "expected_note_revision": 1,
+            "expected_note_revision": 2,
             "expected_paper_revision": 1,
         },
     ).json()
@@ -562,7 +562,7 @@ def test_note_item_mode_updates_only_anchored_fragment_and_rejects_stale_edit(
     )
     assert updated.status_code == 200
     result = updated.json()
-    assert result["note"]["revision"] == 3
+    assert result["note"]["revision"] == 4
     assert result["analysis"]["revision"] == 3
     assert result["item"]["summary"] == "使用检查点恢复失败任务。"
     assert "只在三个公开基准上验证。" in result["note"]["markdown"]
@@ -572,7 +572,7 @@ def test_note_item_mode_updates_only_anchored_fragment_and_rejects_stale_edit(
         f"{item_endpoint}/{method_id}",
         json={
             "markdown": "### 3.1 核心思路\n过期覆盖。",
-            "expected_note_revision": 2,
+            "expected_note_revision": 3,
             "expected_paper_revision": 2,
             "expected_source_fingerprint": source["source_fingerprint"],
         },
@@ -591,14 +591,14 @@ def test_external_markdown_change_requires_review_before_projection_sync(tmp_pat
 ### 3.1 核心思路
 使用证据反馈重新规划失败任务。
 """
-    client.put(note_endpoint, json={"markdown": markdown, "expected_revision": 0})
+    client.put(note_endpoint, json={"markdown": markdown, "expected_revision": 1})
     preview = client.post(f"{analysis_endpoint}/parse-note").json()
     method_id = preview["candidates"][0]["candidate_id"]
     imported = client.post(
         f"{analysis_endpoint}/import-candidates",
         json={
             "candidate_ids": [method_id],
-            "expected_note_revision": 1,
+            "expected_note_revision": 2,
             "expected_paper_revision": 1,
         },
     ).json()
@@ -608,7 +608,7 @@ def test_external_markdown_change_requires_review_before_projection_sync(tmp_pat
     )
     saved = client.put(
         note_endpoint,
-        json={"markdown": externally_changed, "expected_revision": 2},
+        json={"markdown": externally_changed, "expected_revision": 3},
     )
     assert saved.status_code == 200
 
@@ -624,7 +624,7 @@ def test_external_markdown_change_requires_review_before_projection_sync(tmp_pat
         f"{analysis_endpoint}/import-candidates",
         json={
             "candidate_ids": [method_id],
-            "expected_note_revision": 3,
+            "expected_note_revision": 4,
             "expected_paper_revision": 2,
         },
     )
@@ -633,5 +633,89 @@ def test_external_markdown_change_requires_review_before_projection_sync(tmp_pat
     assert result["imported_items"] == []
     assert result["synchronized_items"][0]["item_id"] == method_id
     assert result["synchronized_items"][0]["summary"] == "外部编辑器改为使用状态检查点。"
-    assert result["note"]["revision"] == 3
+    assert result["note"]["revision"] == 4
     assert client.get(f"{note_endpoint}/items").json()["items"][0]["sync_status"] == "synced"
+
+
+def test_removed_source_can_be_deleted_in_review_and_items_support_batch_delete(
+    tmp_path: Path,
+) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    note_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/note"
+    analysis_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/analysis"
+    markdown = """# Evidence
+
+## 3. 本文解决思路和整体框架
+### 3.1 核心思路
+使用状态检查点恢复失败任务。
+
+## 8. 批判性评价
+### 8.2 作者承认的局限
+只在公开基准上验证。
+"""
+    saved = client.put(
+        note_endpoint,
+        json={"markdown": markdown, "expected_revision": 1},
+    )
+    assert saved.status_code == 200
+    preview = client.post(f"{analysis_endpoint}/parse-note").json()
+    candidate_ids = [item["candidate_id"] for item in preview["candidates"]]
+    imported = client.post(
+        f"{analysis_endpoint}/import-candidates",
+        json={
+            "candidate_ids": candidate_ids,
+            "expected_note_revision": 2,
+            "expected_paper_revision": 1,
+        },
+    ).json()
+    method_id, limitation_id = candidate_ids
+    method_fragment = (
+        f"<!-- papermatrix:item:{method_id} -->\n### 3.1 核心思路\n使用状态检查点恢复失败任务。\n\n"
+    )
+    changed_markdown = imported["note"]["markdown"].replace(method_fragment, "")
+    changed = client.put(
+        note_endpoint,
+        json={"markdown": changed_markdown, "expected_revision": 3},
+    )
+    assert changed.status_code == 200
+
+    review = client.get(f"{note_endpoint}/items").json()
+    assert review["pending_candidate_count"] == 1
+    assert review["removals"] == [
+        {
+            "item_id": method_id,
+            "kind": "method",
+            "title": "核心思路",
+            "section_key": "section-3",
+            "section_title": "3. 本文解决思路和整体框架",
+            "section_order": 1,
+        }
+    ]
+    deleted_in_review = client.post(
+        f"{analysis_endpoint}/import-candidates",
+        json={
+            "candidate_ids": [],
+            "removal_item_ids": [method_id],
+            "expected_note_revision": 4,
+            "expected_paper_revision": 2,
+        },
+    )
+    assert deleted_in_review.status_code == 200
+    reviewed = deleted_in_review.json()
+    assert reviewed["deleted_item_ids"] == [method_id]
+    assert [item["item_id"] for item in reviewed["analysis"]["items"]] == [limitation_id]
+
+    batch_deleted = client.post(
+        f"{note_endpoint}/items/delete",
+        json={
+            "item_ids": [limitation_id],
+            "expected_note_revision": 4,
+            "expected_paper_revision": 3,
+        },
+    )
+    assert batch_deleted.status_code == 200
+    result = batch_deleted.json()
+    assert result["deleted_item_ids"] == [limitation_id]
+    assert result["analysis"]["items"] == []
+    assert result["note"]["revision"] == 5
+    assert "作者承认的局限" not in result["note"]["markdown"]

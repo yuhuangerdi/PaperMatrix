@@ -9,6 +9,7 @@ from papermatrix.services.markdown_analysis_parser import (
     note_item_fragment,
     parse_note_candidates,
     remove_item_anchors,
+    remove_note_item_fragments,
     replace_note_item_fragment,
 )
 
@@ -290,9 +291,7 @@ def test_parses_all_filled_semantic_blocks_and_keeps_each_table_together() -> No
         "研究背景",
         "为什么重要",
         "现有方法分类",
-        "文献 A",
-        "文献 B",
-        "文献 C",
+        "代表性顶会顶刊文献（3–5篇）",
         "主要实验结果",
     ]
     assert [candidate.kind for candidate in candidates] == [
@@ -300,17 +299,92 @@ def test_parses_all_filled_semantic_blocks_and_keeps_each_table_together() -> No
         "background",
         "method",
         "related_work",
-        "related_work",
-        "related_work",
         "finding",
     ]
     table = candidates[2]
     assert table.attributes.keys() == {"规则工具", "Agent"}
     assert table.source_line_end - table.source_line_start == 5
+    related_work = candidates[3]
+    assert related_work.attributes == {
+        "文献 A": "主要思路：使用规划器维护任务。; 主要缺点：缺少状态验证。",
+        "文献 B": "主要思路：压缩工具输出。; 主要缺点：可能丢失关键细节。",
+        "文献 C": "主要思路：检索领域知识。; 主要缺点：依赖检索质量。",
+    }
+    assert related_work.source_section == "2.2 代表性顶会顶刊文献（3–5篇）"
     result = candidates[-1]
     assert result.attributes.keys() == {"主实验"}
     assert "228.6% 是相对提升，不是绝对成功率。" in result.summary
     assert "效率/成本实验" not in result.summary
+
+
+def test_representative_work_parent_consolidates_legacy_child_items() -> None:
+    item_a = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    item_b = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+    now = datetime.now(UTC)
+    existing = [
+        AnalysisItem(
+            item_id=item_id,
+            kind="related_work",
+            title=title,
+            summary="旧版四级标题投影",
+            source_anchor=f"papermatrix:item:{item_id}",
+            source_note_revision=2,
+            source_fingerprint="a" * 64,
+            created_at=now,
+            updated_at=now,
+        )
+        for item_id, title in ((item_a, "文献 A"), (item_b, "文献 B"))
+    ]
+    markdown = f"""## 2. 现有方案分类和经典文献
+### 2.2 代表性顶会顶刊文献（3–5篇）
+<!-- papermatrix:item:{item_a} -->
+#### 文献 A
+- 主要思路：规划和执行。
+- 主要缺点：缺少验证。
+
+<!-- papermatrix:item:{item_b} -->
+#### 文献 B
+- 主要思路：加入反思。
+- 主要缺点：成本较高。
+
+### 2.3 现有方案的共同不足
+没有统一评测环境。
+"""
+
+    candidates = parse_note_candidates(PAPER_ID, markdown, existing)
+
+    assert [candidate.title for candidate in candidates] == [
+        "代表性顶会顶刊文献（3–5篇）",
+        "现有方案的共同不足",
+    ]
+    assert candidates[0].superseded_item_ids == [item_a, item_b]
+
+
+def test_removes_complete_anchored_heading_fragments_without_removing_siblings() -> None:
+    first = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    second = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+    markdown = f"""## 2. 现有方案
+<!-- papermatrix:item:{first} -->
+### 2.2 代表性顶会顶刊文献（3–5篇）
+#### 文献 A
+- 主要思路：规划。
+
+#### 文献 B
+- 主要思路：验证。
+
+<!-- papermatrix:item:{second} -->
+### 2.3 共同不足
+缺少统一基准。
+"""
+
+    updated = remove_note_item_fragments(markdown, {first})
+
+    assert "代表性顶会顶刊文献" not in updated
+    assert "文献 A" not in updated
+    assert "文献 B" not in updated
+    assert f"papermatrix:item:{first}" not in updated
+    assert f"papermatrix:item:{second}" in updated
+    assert "### 2.3 共同不足" in updated
 
 
 def test_legacy_table_row_anchors_are_reported_for_confirmed_consolidation() -> None:

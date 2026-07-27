@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   BookOpenText,
   Check,
+  CheckSquare2,
   Clipboard,
   FileQuestion,
   FileText,
@@ -60,6 +61,7 @@ const supplementState = ref<SaveState>('loading')
 const noteMode = ref<NoteMode>('document')
 const noteItems = ref<NoteItemDocument | null>(null)
 const selectedNoteItemId = ref<string | null>(null)
+const selectedNoteItemIds = ref<string[]>([])
 const noteItemDraft = ref('')
 const savedNoteItemDraft = ref('')
 const questions = ref<QuestionsDocument | null>(null)
@@ -356,14 +358,22 @@ function selectInitialNoteItem(document: NoteItemDocument) {
 
 function applyNoteItems(document: NoteItemDocument) {
   noteItems.value = document
+  const currentIds = new Set(document.items.map((item) => item.item_id))
+  selectedNoteItemIds.value = selectedNoteItemIds.value.filter((itemId) => currentIds.has(itemId))
   candidatePreview.value = {
     paper_id: document.paper_id,
     note_revision: document.note_revision,
     paper_revision: document.paper_revision,
     candidates: document.candidates,
+    removals: document.removals,
     warnings: document.warnings,
   }
   selectInitialNoteItem(document)
+}
+
+function toggleAllNoteItems() {
+  const itemIds = noteItems.value?.items.map((item) => item.item_id) ?? []
+  selectedNoteItemIds.value = selectedNoteItemIds.value.length === itemIds.length ? [] : itemIds
 }
 
 async function reloadNoteItems() {
@@ -431,6 +441,42 @@ async function saveNoteItem() {
   } catch (error: unknown) {
     errorMessage.value =
       error instanceof ApiError ? error.message : '条目保存失败，当前草稿仍保留。'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function deleteNoteItems(itemIds: string[]) {
+  if (!noteItems.value || itemIds.length === 0) return
+  const noun = itemIds.length === 1 ? '这个条目' : `选中的 ${itemIds.length} 个条目`
+  if (
+    !window.confirm(
+      `删除${noun}吗？对应的结构化笔记标题块和分析投影都会被删除，此操作不会修改 PDF。`,
+    )
+  ) {
+    return
+  }
+  busy.value = true
+  errorMessage.value = ''
+  try {
+    const result = await paperStore.deleteNoteItems(
+      projectId.value,
+      paperId.value,
+      itemIds,
+      noteItems.value.note_revision,
+      noteItems.value.paper_revision,
+    )
+    note.value = result.note
+    noteDraft.value = result.note.markdown
+    savedDraft.value = result.note.markdown
+    noteState.value = 'saved'
+    analysis.value = result.analysis
+    syncPaperRevision(result.analysis)
+    selectedNoteItemIds.value = []
+    await reloadNoteItems()
+    successMessage.value = `已删除 ${result.deleted_item_ids.length} 个条目及对应笔记内容。`
+  } catch (error: unknown) {
+    errorMessage.value = error instanceof ApiError ? error.message : '删除条目失败，请刷新后重试。'
   } finally {
     busy.value = false
   }
@@ -675,7 +721,7 @@ async function refreshNoteCandidates() {
   }
 }
 
-async function importNoteCandidates(candidateIds: string[]) {
+async function importNoteCandidates(candidateIds: string[], removalItemIds: string[]) {
   if (!candidatePreview.value) return
   busy.value = true
   errorMessage.value = ''
@@ -684,6 +730,7 @@ async function importNoteCandidates(candidateIds: string[]) {
       projectId.value,
       paperId.value,
       candidateIds,
+      removalItemIds,
       candidatePreview.value.note_revision,
       candidatePreview.value.paper_revision,
     )
@@ -702,7 +749,10 @@ async function importNoteCandidates(candidateIds: string[]) {
       const consolidated = result.superseded_item_ids.length
         ? `，合并 ${result.superseded_item_ids.length} 个旧版表格行条目`
         : ''
-      successMessage.value = `已导入 ${result.imported_items.length} 条、同步 ${result.synchronized_items.length} 条分析候选${consolidated}。`
+      const removed = result.deleted_item_ids.length
+        ? `，删除 ${result.deleted_item_ids.length} 个旧条目`
+        : ''
+      successMessage.value = `已导入 ${result.imported_items.length} 条、同步 ${result.synchronized_items.length} 条分析候选${consolidated}${removed}。`
     } else {
       noteMode.value = 'document'
       errorMessage.value = '候选分析已保存，但条目视图刷新失败，请重新加载页面。'
@@ -942,6 +992,27 @@ onBeforeUnmount(() => {
             >
               审阅 {{ noteItems.pending_candidate_count }} 项变化
             </button>
+            <div v-if="noteItems?.items.length" class="note-item-bulk-actions">
+              <button
+                class="button button--secondary button--compact"
+                type="button"
+                :disabled="busy"
+                @click="toggleAllNoteItems"
+              >
+                <CheckSquare2 :size="14" />
+                {{
+                  selectedNoteItemIds.length === noteItems.items.length ? '取消全选' : '选择全部'
+                }}
+              </button>
+              <button
+                class="button button--danger button--compact"
+                type="button"
+                :disabled="busy || selectedNoteItemIds.length === 0"
+                @click="deleteNoteItems(selectedNoteItemIds)"
+              >
+                <Trash2 :size="14" /> 删除 {{ selectedNoteItemIds.length || '' }}
+              </button>
+            </div>
           </header>
           <div v-if="noteItems?.items.length === 0" class="empty-state empty-state--compact">
             <p v-if="noteItems.note_revision === 0">填写并保存结构化文档后将自动解析候选。</p>
@@ -958,31 +1029,40 @@ onBeforeUnmount(() => {
               <ScanText :size="16" /> 审阅自动解析结果
             </button>
           </div>
-          <button
-            v-for="item in noteItems?.items"
-            :key="item.item_id"
-            type="button"
-            class="note-item-list-entry"
-            :class="{ active: item.item_id === selectedNoteItemId }"
-            @click="selectNoteItem(item)"
-          >
-            <span>
-              <strong>{{ item.title }}</strong>
-              <small>
-                {{ item.section_title || '未绑定章节' }}
-                <template v-if="item.section_order"> · 第 {{ item.section_order }} 条</template>
-              </small>
-            </span>
-            <span class="note-sync-state" :class="`note-sync-state--${item.sync_status}`">
-              {{
-                item.sync_status === 'synced'
-                  ? '已同步'
-                  : item.sync_status === 'review_required'
-                    ? '待审阅'
-                    : '来源缺失'
-              }}
-            </span>
-          </button>
+          <div v-if="noteItems?.items.length" class="note-item-list-scroll" tabindex="0">
+            <div
+              v-for="item in noteItems.items"
+              :key="item.item_id"
+              class="note-item-list-row"
+              :class="{ active: item.item_id === selectedNoteItemId }"
+            >
+              <input
+                v-model="selectedNoteItemIds"
+                type="checkbox"
+                :value="item.item_id"
+                :aria-label="`选择 ${item.title}`"
+                :disabled="busy"
+              />
+              <button type="button" class="note-item-list-entry" @click="selectNoteItem(item)">
+                <span>
+                  <strong>{{ item.title }}</strong>
+                  <small>
+                    {{ item.section_title || '未绑定章节' }}
+                    <template v-if="item.section_order"> · 第 {{ item.section_order }} 条</template>
+                  </small>
+                </span>
+                <span class="note-sync-state" :class="`note-sync-state--${item.sync_status}`">
+                  {{
+                    item.sync_status === 'synced'
+                      ? '已同步'
+                      : item.sync_status === 'review_required'
+                        ? '待审阅'
+                        : '来源缺失'
+                  }}
+                </span>
+              </button>
+            </div>
+          </div>
         </aside>
         <main class="note-item-editor-pane">
           <div v-if="!selectedNoteItem" class="empty-state">
@@ -996,7 +1076,18 @@ onBeforeUnmount(() => {
                 <span class="analysis-kind">{{ analysisKindLabel(selectedNoteItem.kind) }}</span>
                 <h2>{{ selectedNoteItem.title }}</h2>
               </div>
-              <small>条目 ID {{ selectedNoteItem.item_id }}</small>
+              <div class="note-item-editor-actions">
+                <small>条目 ID {{ selectedNoteItem.item_id }}</small>
+                <button
+                  class="icon-button icon-button--danger"
+                  type="button"
+                  aria-label="删除当前条目"
+                  :disabled="busy"
+                  @click="deleteNoteItems([selectedNoteItem.item_id])"
+                >
+                  <Trash2 :size="16" />
+                </button>
+              </div>
             </header>
             <div
               v-if="selectedNoteItem.sync_status !== 'synced'"

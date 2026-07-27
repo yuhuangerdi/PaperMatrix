@@ -1,7 +1,10 @@
 """Paper note and reading-question orchestration."""
 
+# ruff: noqa: RUF001
+
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
@@ -17,6 +20,8 @@ from papermatrix.core.schema_registry import SchemaRegistry
 from papermatrix.domain.note_analysis import (
     CandidateImportResult,
     NoteAnalysisCandidate,
+    NoteAnalysisRemoval,
+    NoteItemDeleteResult,
     NoteItemDocument,
     NoteItemSource,
     NoteItemUpdateResult,
@@ -38,6 +43,7 @@ from papermatrix.services.markdown_analysis_parser import (
     note_item_fragment,
     parse_note_candidates,
     remove_item_anchors,
+    remove_note_item_fragments,
     replace_note_item_fragment,
 )
 from papermatrix.services.workspace_service import WorkspaceService
@@ -73,13 +79,25 @@ class PaperContentService:
             return existing
         return PaperNote(
             paper_id=paper_id,
-            markdown=self._initial_note_body(
-                paper_id=paper_id,
-                title=paper.bibliography.short_title or paper.bibliography.title,
-            ),
+            markdown=self._initial_note_body(paper),
             revision=0,
             updated_at=datetime.now(UTC),
         )
+
+    def initialize_note(self, project_id: UUID, paper: Paper) -> PaperNote:
+        """Persist a metadata-seeded template exactly once when a paper is created."""
+        projects, _, content = self._repositories()
+        projects.load(project_id)
+        existing = content.load_note(project_id, paper.paper_id)
+        if existing is not None:
+            return existing
+        note = PaperNote(
+            paper_id=paper.paper_id,
+            markdown=self._initial_note_body(paper),
+            revision=1,
+            updated_at=datetime.now(UTC),
+        )
+        return content.save_note(project_id, note, expected_revision=0)
 
     def save_note(
         self,
@@ -153,6 +171,7 @@ class PaperContentService:
             note.markdown,
             paper.structured_summary.items,
         )
+        removals = self._removal_candidates(paper, candidates)
         superseded_count = len(
             {item_id for candidate in candidates for item_id in candidate.superseded_item_ids}
         )
@@ -167,6 +186,7 @@ class PaperContentService:
             note_revision=note.revision,
             paper_revision=paper.revision,
             candidates=candidates,
+            removals=removals,
             warnings=warnings,
         )
 
@@ -181,6 +201,7 @@ class PaperContentService:
             note.markdown,
             paper.structured_summary.items,
         )
+        removals = self._removal_candidates(paper, candidates)
         warnings: list[str] = []
         if persisted_note is None:
             warnings.append("当前显示尚未保存的默认模板。请先填写并保存笔记后再审阅分析候选。")
@@ -232,13 +253,16 @@ class PaperContentService:
                     ),
                 )
             )
-        pending = sum(candidate.sync_status != "unchanged" for candidate in candidates)
+        pending = sum(candidate.sync_status != "unchanged" for candidate in candidates) + len(
+            removals
+        )
         return NoteItemDocument(
             paper_id=paper_id,
             note_revision=note.revision,
             paper_revision=paper.revision,
             items=sources,
             candidates=candidates,
+            removals=removals,
             warnings=warnings,
             pending_candidate_count=pending,
         )
@@ -353,6 +377,7 @@ class PaperContentService:
         paper_id: UUID,
         *,
         candidate_ids: list[UUID],
+        removal_item_ids: list[UUID],
         expected_note_revision: int,
         expected_paper_revision: int,
     ) -> CandidateImportResult:
@@ -380,10 +405,17 @@ class PaperContentService:
             note.markdown,
             paper.structured_summary.items,
         )
+        removals = self._removal_candidates(paper, candidates)
         by_id = {candidate.candidate_id: candidate for candidate in candidates}
         unknown = [str(candidate_id) for candidate_id in candidate_ids if candidate_id not in by_id]
         if unknown:
             raise AnalysisCandidateSelectionError(unknown)
+        removal_ids = {item.item_id for item in removals}
+        unknown_removals = [
+            str(item_id) for item_id in removal_item_ids if item_id not in removal_ids
+        ]
+        if unknown_removals:
+            raise AnalysisCandidateSelectionError(unknown_removals)
 
         imported: list[AnalysisItem] = []
         skipped: list[UUID] = []
@@ -411,7 +443,12 @@ class PaperContentService:
         superseded_items = [
             item for item in paper.structured_summary.items if item.item_id in superseded_ids
         ]
-        consolidated_markdown = remove_item_anchors(note.markdown, superseded_ids)
+        ordered_deleted_ids = list(dict.fromkeys(removal_item_ids))
+        deleted_ids = set(ordered_deleted_ids)
+        consolidated_markdown = remove_item_anchors(
+            note.markdown,
+            superseded_ids | deleted_ids,
+        )
         anchored_markdown = add_item_anchors(consolidated_markdown, selected_candidates)
         if anchored_markdown != note.markdown:
             note = content.save_note(
@@ -441,12 +478,12 @@ class PaperContentService:
             self._item_from_candidate(existing, candidate, source_note_revision=note.revision)
             for existing, candidate in synchronized
         ]
-        if imported or synchronized_items:
+        if imported or synchronized_items or deleted_ids:
             synchronized_by_id = {item.item_id: item for item in synchronized_items}
             existing_items = [
                 synchronized_by_id.get(item.item_id, item)
                 for item in paper.structured_summary.items
-                if item.item_id not in superseded_ids
+                if item.item_id not in superseded_ids | deleted_ids
             ]
             updated = paper.model_copy(
                 update={
@@ -465,6 +502,74 @@ class PaperContentService:
             synchronized_items=synchronized_items,
             skipped_candidate_ids=skipped,
             superseded_item_ids=list(superseded_ids),
+            deleted_item_ids=ordered_deleted_ids,
+        )
+
+    def delete_note_items(
+        self,
+        project_id: UUID,
+        paper_id: UUID,
+        *,
+        item_ids: list[UUID],
+        expected_note_revision: int,
+        expected_paper_revision: int,
+    ) -> NoteItemDeleteResult:
+        projects, papers, content = self._repositories()
+        projects.load(project_id)
+        paper = papers.load(project_id, paper_id)
+        if paper.revision != expected_paper_revision:
+            raise AnalysisPreviewStaleError(
+                resource="paper",
+                expected=expected_paper_revision,
+                actual=paper.revision,
+            )
+        note = content.load_note(project_id, paper_id)
+        actual_note_revision = note.revision if note else 0
+        if actual_note_revision != expected_note_revision:
+            raise AnalysisPreviewStaleError(
+                resource="note",
+                expected=expected_note_revision,
+                actual=actual_note_revision,
+            )
+        ordered_item_ids = list(dict.fromkeys(item_ids))
+        selected_ids = set(ordered_item_ids)
+        existing_ids = {item.item_id for item in paper.structured_summary.items}
+        unknown = [str(item_id) for item_id in selected_ids if item_id not in existing_ids]
+        if unknown:
+            raise AnalysisCandidateSelectionError(unknown)
+
+        if note is None:
+            note = self.get_note(project_id, paper_id)
+        updated_markdown = remove_note_item_fragments(note.markdown, selected_ids)
+        if updated_markdown != note.markdown:
+            note = content.save_note(
+                project_id,
+                note.model_copy(
+                    update={
+                        "markdown": updated_markdown,
+                        "revision": note.revision + 1,
+                        "updated_at": datetime.now(UTC),
+                    }
+                ),
+                expected_revision=expected_note_revision,
+            )
+        remaining = [
+            item for item in paper.structured_summary.items if item.item_id not in selected_ids
+        ]
+        updated = paper.model_copy(
+            update={
+                "structured_summary": paper.structured_summary.model_copy(
+                    update={"items": remaining}
+                ),
+                "revision": paper.revision + 1,
+                "updated_at": datetime.now(UTC),
+            }
+        )
+        paper = papers.save(updated, expected_revision=expected_paper_revision)
+        return NoteItemDeleteResult(
+            note=note,
+            analysis=self._analysis_document(paper),
+            deleted_item_ids=ordered_item_ids,
         )
 
     @staticmethod
@@ -647,14 +752,91 @@ class PaperContentService:
         papers.load(project_id, paper_id)
         return content.load_questions(project_id, paper_id), content
 
-    def _initial_note_body(self, *, paper_id: UUID, title: str) -> str:
+    def _initial_note_body(self, paper: Paper) -> str:
         template = self._note_template_path.read_text(encoding="utf-8")
         _, body = PaperContentRepository._parse_note(
-            template.replace("{{ paper_id }}", str(paper_id))
+            template.replace("{{ paper_id }}", str(paper.paper_id))
             .replace("{{ updated_at }}", datetime.now(UTC).isoformat())
-            .replace("{{ short_title }}", title)
+            .replace(
+                "{{ short_title }}",
+                paper.bibliography.short_title or paper.bibliography.title,
+            )
         )
+        bibliography = paper.bibliography
+        organization = paper.organization
+        publication_date = (
+            bibliography.publication_date.isoformat()
+            if bibliography.publication_date
+            else str(bibliography.year or "")
+        )
+        reading_status = {
+            "unread": "未读",
+            "skimmed": "粗读",
+            "deep_read": "精读",
+            "summarized": "已总结",
+            "reported": "已汇报",
+        }[organization.reading_status]
+        values: dict[str, str] = {
+            "完整标题": bibliography.title,
+            "作者": "，".join(bibliography.authors),
+            "署名单位": "，".join(bibliography.affiliations),
+            "发表载体（会议/期刊/平台）": bibliography.venue or "",
+            "发表时间": publication_date,
+            "被引次数": (
+                str(bibliography.citation_count) if bibliography.citation_count is not None else ""
+            ),
+            "语言": bibliography.language or "",
+            "关键词": "，".join(bibliography.keywords),
+            "项目内分组": organization.group or "",
+            "论文链接": bibliography.urls[0] if bibliography.urls else "",
+            "代码链接": bibliography.code_url or "",
+            "数据链接": bibliography.data_url or "",
+            "阅读日期": (
+                organization.reading_date.isoformat() if organization.reading_date else ""
+            ),
+            "阅读状态": reading_status,
+            "重要程度": (
+                str(organization.importance_score)
+                if organization.importance_score is not None
+                else ""
+            ),
+            "一句话总结": organization.one_sentence_summary,
+            "摘要": bibliography.abstract_text,
+        }
+        for label, value in values.items():
+            if value:
+                body = self._replace_template_field(body, label, value)
         return body
+
+    @staticmethod
+    def _replace_template_field(markdown: str, label: str, value: str) -> str:
+        normalized = " ".join(value.split())
+        pattern = re.compile(rf"(?m)^- {re.escape(label)}：.*$")
+        return pattern.sub(f"- {label}：{normalized}", markdown, count=1)
+
+    @staticmethod
+    def _removal_candidates(
+        paper: Paper,
+        candidates: list[NoteAnalysisCandidate],
+    ) -> list[NoteAnalysisRemoval]:
+        candidate_ids = {candidate.candidate_id for candidate in candidates}
+        superseded_ids = {
+            item_id for candidate in candidates for item_id in candidate.superseded_item_ids
+        }
+        return [
+            NoteAnalysisRemoval(
+                item_id=item.item_id,
+                kind=item.kind,
+                title=item.title,
+                section_key=item.section_key,
+                section_title=item.section_title,
+                section_order=item.section_order,
+            )
+            for item in paper.structured_summary.items
+            if item.source_anchor is not None
+            and item.item_id not in candidate_ids
+            and item.item_id not in superseded_ids
+        ]
 
     @staticmethod
     def _clean_tags(tags: list[str]) -> list[str]:

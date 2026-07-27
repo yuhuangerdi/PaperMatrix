@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from papermatrix.domain.note_analysis import (
     CandidateImportResult,
+    NoteItemDeleteResult,
     NoteItemDocument,
     NoteItemUpdateResult,
     NoteParsePreview,
@@ -34,9 +35,16 @@ class NoteUpdate(BaseModel):
 
 
 class CandidateImportRequest(BaseModel):
-    candidate_ids: list[UUID] = Field(min_length=1)
+    candidate_ids: list[UUID] = Field(default_factory=list)
+    removal_item_ids: list[UUID] = Field(default_factory=list)
     expected_note_revision: int = Field(ge=0)
     expected_paper_revision: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def has_at_least_one_change(self) -> CandidateImportRequest:
+        if not self.candidate_ids and not self.removal_item_ids:
+            raise ValueError("candidate_ids or removal_item_ids must not be empty")
+        return self
 
 
 class NoteItemUpdate(BaseModel):
@@ -44,6 +52,12 @@ class NoteItemUpdate(BaseModel):
     expected_note_revision: int = Field(ge=0)
     expected_paper_revision: int = Field(ge=1)
     expected_source_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class NoteItemDeleteRequest(BaseModel):
+    item_ids: list[UUID] = Field(min_length=1)
+    expected_note_revision: int = Field(ge=0)
+    expected_paper_revision: int = Field(ge=1)
 
 
 class QuestionInput(BaseModel):
@@ -147,6 +161,23 @@ def update_note_item(
         project_id,
         paper_id,
         item_id,
+        **payload.model_dump(),
+    )
+
+
+@router.post(
+    "/projects/{project_id}/papers/{paper_id}/note/items/delete",
+    response_model=NoteItemDeleteResult,
+)
+def delete_note_items(
+    project_id: UUID,
+    paper_id: UUID,
+    payload: NoteItemDeleteRequest,
+    request: Request,
+) -> NoteItemDeleteResult:
+    return _service(request).delete_note_items(
+        project_id,
+        paper_id,
         **payload.model_dump(),
     )
 

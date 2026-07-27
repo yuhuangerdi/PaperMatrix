@@ -68,6 +68,8 @@ def parse_note_candidates(
     for block in blocks:
         if block.level < 3:
             continue
+        if block.level == 4 and _is_representative_work_child(block, blocks):
+            continue
         kind = _kind_for_heading(block.heading)
         if kind is None:
             continue
@@ -105,7 +107,17 @@ def _blocks(markdown: str) -> list[_Block]:
     for position, (index, level, heading) in enumerate(headings):
         if level == 2:
             current_section_key, current_section_title = _section_identity(heading)
-        end = headings[position + 1][0] if position + 1 < len(headings) else len(lines)
+        if _is_representative_work_heading(heading):
+            end = next(
+                (
+                    next_index
+                    for next_index, next_level, _ in headings[position + 1 :]
+                    if next_level <= level
+                ),
+                len(lines),
+            )
+        else:
+            end = headings[position + 1][0] if position + 1 < len(headings) else len(lines)
         if end > index + 1 and _ITEM_ANCHOR.fullmatch(lines[end - 1].strip()):
             end -= 1
         blocks.append(
@@ -125,12 +137,11 @@ def _blocks(markdown: str) -> list[_Block]:
 
 def _kind_for_heading(heading: str) -> AnalysisItemKind | None:
     cleaned = _NUMBERING.sub("", heading).strip()
-    if re.fullmatch(r"文献\s*[A-Z0-9一二三四五六七八九十]+", cleaned, re.IGNORECASE):
-        return "related_work"
     rules: list[tuple[tuple[str, ...], AnalysisItemKind]] = [
         (("研究背景", "为什么重要", "问题的重要性"), "background"),
         (("具体问题", "问题形式化"), "research_problem"),
         (("实际应用场景",), "scenario"),
+        (("代表性顶会顶刊文献",), "related_work"),
         (("现有方法分类", "本文切入点", "核心思路", "整体框架", "大致流程"), "method"),
         (("框架组成",), "method_component"),
         (
@@ -178,11 +189,20 @@ def _block_candidate(
     kind: AnalysisItemKind,
     existing_items: list[AnalysisItem],
 ) -> NoteAnalysisCandidate | None:
+    nested_attributes = _nested_heading_attributes(block.lines)
     attributes: dict[str, str] = {}
     prose: list[str] = []
     for raw in block.lines:
         line = raw.strip()
-        if not line or line == "---" or line.startswith("|") or _ITEM_ANCHOR.fullmatch(line):
+        if (
+            not line
+            or line == "---"
+            or line.startswith("|")
+            or line.startswith("#### ")
+            or _ITEM_ANCHOR.fullmatch(line)
+        ):
+            continue
+        if nested_attributes:
             continue
         match = _LIST_ITEM.match(line)
         value = match.group(1).strip() if match else line
@@ -199,6 +219,7 @@ def _block_candidate(
                 attributes[key.strip()] = content.strip()
             continue
         prose.append(value)
+    attributes.update(nested_attributes)
     attributes.update(_table_attributes(block.lines))
     if not attributes and not prose:
         return None
@@ -246,6 +267,60 @@ def _table_attributes(lines: list[str]) -> dict[str, str]:
             suffix += 1
         result[key] = "; ".join(f"{header}: {value}" for header, value in details.items())
     return result
+
+
+def _nested_heading_attributes(lines: list[str]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    title: str | None = None
+    values: list[str] = []
+
+    def flush() -> None:
+        if title is None:
+            return
+        meaningful = [value for value in values if _meaningful(value)]
+        if meaningful:
+            result[title] = "; ".join(meaningful)
+
+    for raw in lines:
+        line = raw.strip()
+        heading = _HEADING.match(line)
+        if heading and len(heading.group(1)) == 4:
+            flush()
+            title = _NUMBERING.sub("", heading.group(2)).strip()
+            values = []
+            continue
+        if title is None or not line or _ITEM_ANCHOR.fullmatch(line):
+            continue
+        match = _LIST_ITEM.match(line)
+        value = match.group(1).strip() if match else line
+        separator = "\uff1a" if "\uff1a" in value else ":" if ":" in value else None
+        if separator is not None:
+            key, content = value.split(separator, 1)
+            if not _meaningful(content):
+                continue
+            value = f"{key.strip()}{separator}{content.strip()}"
+        if _meaningful(value):
+            values.append(value)
+    flush()
+    return result
+
+
+def _is_representative_work_heading(heading: str) -> bool:
+    return "代表性顶会顶刊文献" in _NUMBERING.sub("", heading).strip()
+
+
+def _is_representative_work_child(block: _Block, blocks: list[_Block]) -> bool:
+    if block.level != 4:
+        return False
+    parent = next(
+        (
+            candidate
+            for candidate in reversed(blocks)
+            if candidate.start < block.start and candidate.level == 3
+        ),
+        None,
+    )
+    return parent is not None and _is_representative_work_heading(parent.heading)
 
 
 def _superseded_item_ids(
@@ -433,6 +508,45 @@ def remove_item_anchors(markdown: str, item_ids: set[UUID]) -> str:
     return "\n".join(lines) + suffix
 
 
+def remove_note_item_fragments(markdown: str, item_ids: set[UUID]) -> str:
+    """Remove anchored heading blocks or table rows selected by the user."""
+    if not item_ids:
+        return markdown
+    lines = markdown.splitlines()
+    ranges: list[tuple[int, int]] = []
+    for marker_index, line in enumerate(lines):
+        match = _ITEM_ANCHOR.search(line)
+        if match is None or UUID(match.group(1)) not in item_ids:
+            continue
+        if line.lstrip().startswith("|"):
+            ranges.append((marker_index, marker_index + 1))
+            continue
+        heading_index = marker_index + 1
+        if heading_index >= len(lines):
+            ranges.append((marker_index, marker_index + 1))
+            continue
+        heading = _HEADING.match(lines[heading_index])
+        if heading is None:
+            ranges.append((marker_index, marker_index + 1))
+            continue
+        level = len(heading.group(1))
+        end = len(lines)
+        for index in range(heading_index + 1, len(lines)):
+            next_heading = _HEADING.match(lines[index])
+            if next_heading and len(next_heading.group(1)) <= level:
+                end = (
+                    index - 1
+                    if index > heading_index and _ITEM_ANCHOR.fullmatch(lines[index - 1].strip())
+                    else index
+                )
+                break
+        ranges.append((marker_index, end))
+    for start, end in reversed(ranges):
+        del lines[start:end]
+    suffix = "\n" if markdown.endswith("\n") else ""
+    return "\n".join(lines) + suffix
+
+
 def _section_identity(heading: str) -> tuple[str, str]:
     match = _SECTION_NUMBER.match(heading.strip())
     if match is None:
@@ -529,10 +643,15 @@ def replace_note_item_fragment(
         if heading is None or replacement_heading is None:
             return markdown
         end = len(lines)
+        heading_level = len(heading.group(1))
         for index in range(heading_index + 1, len(lines)):
             match = _HEADING.match(lines[index])
-            if match:
-                end = index
+            if match and len(match.group(1)) <= heading_level:
+                end = (
+                    index - 1
+                    if index > heading_index and _ITEM_ANCHOR.fullmatch(lines[index - 1].strip())
+                    else index
+                )
                 break
         lines[heading_index:end] = replacement_lines
 
