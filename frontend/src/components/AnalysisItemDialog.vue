@@ -1,0 +1,246 @@
+<script setup lang="ts">
+import { Plus, Trash2, X } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+
+import type {
+  AnalysisItem,
+  AnalysisItemInput,
+  AnalysisItemKind,
+  EvidenceReference,
+  WritingUse,
+} from '@/types/api'
+
+const props = defineProps<{
+  paperId: string
+  item: AnalysisItem | null
+  busy: boolean
+}>()
+const emit = defineEmits<{
+  close: []
+  save: [input: AnalysisItemInput]
+}>()
+
+const kindOptions: Array<{ value: AnalysisItemKind; label: string }> = [
+  { value: 'research_problem', label: '研究问题' },
+  { value: 'scenario', label: '适用场景' },
+  { value: 'method', label: '方法路线' },
+  { value: 'method_component', label: '方法组件' },
+  { value: 'mechanism', label: '关键机制' },
+  { value: 'challenge', label: '挑战' },
+  { value: 'innovation', label: '创新点' },
+  { value: 'contribution', label: '附加贡献' },
+  { value: 'experiment', label: '实验' },
+  { value: 'finding', label: '关键发现' },
+  { value: 'author_limitation', label: '作者局限' },
+  { value: 'reviewer_limitation', label: '我的评价' },
+  { value: 'condition', label: '成立条件' },
+]
+const writingUseOptions: Array<{ value: WritingUse; label: string }> = [
+  { value: 'INTRO', label: '引言' },
+  { value: 'RELATED', label: '相关工作' },
+  { value: 'METHOD', label: '方法' },
+  { value: 'BASELINE', label: '基线' },
+  { value: 'DATASET', label: '数据集' },
+  { value: 'METRIC', label: '指标' },
+  { value: 'LIMITATION', label: '局限' },
+  { value: 'DISCUSSION', label: '讨论' },
+  { value: 'FUTURE', label: '未来工作' },
+]
+
+function emptyEvidence(): EvidenceReference {
+  return {
+    paper_id: props.paperId,
+    page_label: null,
+    pdf_page_index: null,
+    section: null,
+    figure: null,
+    table: null,
+    locator_note: '',
+    source_item_id: null,
+  }
+}
+
+function splitValues(value: string) {
+  return value
+    .split(/[,，]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+const form = ref({
+  kind: props.item?.kind ?? ('research_problem' as AnalysisItemKind),
+  title: props.item?.title ?? '',
+  summary: props.item?.summary ?? '',
+  tags: props.item?.tags.join(', ') ?? '',
+  writingUses: [...(props.item?.writing_uses ?? [])] as WritingUse[],
+  attributes: Object.entries(props.item?.attributes ?? {}).map(([key, value]) => ({
+    key,
+    value,
+  })),
+  evidence: (props.item?.evidence_refs ?? []).map((entry) => ({ ...entry })),
+})
+const initial = JSON.stringify(form.value)
+const dirty = computed(() => JSON.stringify(form.value) !== initial)
+
+function requestClose() {
+  if (dirty.value && !window.confirm('放弃尚未保存的分析条目修改吗？')) return
+  emit('close')
+}
+
+function submit() {
+  const attributes = Object.fromEntries(
+    form.value.attributes
+      .map((entry) => [entry.key.trim(), entry.value.trim()])
+      .filter(([key, value]) => key && value),
+  )
+  emit('save', {
+    kind: form.value.kind,
+    title: form.value.title.trim(),
+    summary: form.value.summary.trim(),
+    attributes,
+    evidence_refs: form.value.evidence,
+    tags: splitValues(form.value.tags),
+    writing_uses: form.value.writingUses,
+  })
+}
+</script>
+
+<template>
+  <div class="modal-backdrop">
+    <section
+      class="question-dialog analysis-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="analysis-item-title"
+    >
+      <header>
+        <div>
+          <p class="eyebrow">单篇分析</p>
+          <h2 id="analysis-item-title">{{ item ? '编辑分析条目' : '添加分析条目' }}</h2>
+        </div>
+        <button class="icon-button" type="button" aria-label="关闭" @click="requestClose">
+          <X :size="20" />
+        </button>
+      </header>
+
+      <div class="question-form analysis-form">
+        <div class="question-form-row">
+          <label class="field">
+            <span>条目类型</span>
+            <select v-model="form.kind" class="select-control">
+              <option v-for="option in kindOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+          <label class="field">
+            <span>标签</span>
+            <input v-model="form.tags" placeholder="用逗号分隔" />
+          </label>
+        </div>
+        <label class="field">
+          <span>标题</span>
+          <input v-model="form.title" maxlength="300" />
+        </label>
+        <label class="field">
+          <span>分析摘要</span>
+          <textarea v-model="form.summary" class="answer-input" />
+        </label>
+
+        <fieldset class="writing-use-fieldset">
+          <legend>写作用途</legend>
+          <label v-for="option in writingUseOptions" :key="option.value">
+            <input v-model="form.writingUses" type="checkbox" :value="option.value" />
+            <span>{{ option.label }}</span>
+          </label>
+        </fieldset>
+
+        <section class="evidence-editor">
+          <header>
+            <strong>结构化属性</strong>
+            <button
+              class="button button--secondary button--compact"
+              type="button"
+              @click="form.attributes.push({ key: '', value: '' })"
+            >
+              <Plus :size="15" /> 添加属性
+            </button>
+          </header>
+          <div v-for="(attribute, index) in form.attributes" :key="index" class="attribute-row">
+            <input
+              v-model="attribute.key"
+              :aria-label="`属性 ${index + 1} 名称`"
+              placeholder="名称"
+            />
+            <input
+              v-model="attribute.value"
+              :aria-label="`属性 ${index + 1} 内容`"
+              placeholder="内容"
+            />
+            <button
+              class="icon-button icon-button--danger"
+              type="button"
+              :aria-label="`删除属性 ${index + 1}`"
+              @click="form.attributes.splice(index, 1)"
+            >
+              <Trash2 :size="15" />
+            </button>
+          </div>
+        </section>
+
+        <section class="evidence-editor">
+          <header>
+            <strong>证据定位</strong>
+            <button
+              class="button button--secondary button--compact"
+              type="button"
+              @click="form.evidence.push(emptyEvidence())"
+            >
+              <Plus :size="15" /> 添加证据
+            </button>
+          </header>
+          <div
+            v-for="(evidence, index) in form.evidence"
+            :key="evidence.evidence_id ?? index"
+            class="evidence-row"
+          >
+            <input v-model="evidence.page_label" placeholder="印刷页码" />
+            <input
+              v-model.number="evidence.pdf_page_index"
+              type="number"
+              min="1"
+              placeholder="PDF 页"
+            />
+            <input v-model="evidence.section" placeholder="章节" />
+            <input v-model="evidence.figure" placeholder="图号" />
+            <input v-model="evidence.table" placeholder="表号" />
+            <input v-model="evidence.locator_note" placeholder="定位说明" />
+            <button
+              class="icon-button icon-button--danger"
+              type="button"
+              aria-label="删除证据"
+              @click="form.evidence.splice(index, 1)"
+            >
+              <Trash2 :size="15" />
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <footer>
+        <span>确认后写回论文 YAML；Markdown 解析候选不会自动覆盖。</span>
+        <div>
+          <button class="button button--secondary" type="button" @click="requestClose">取消</button>
+          <button
+            class="button button--primary"
+            type="button"
+            :disabled="busy || !form.title.trim()"
+            @click="submit"
+          >
+            {{ busy ? '保存中…' : '保存条目' }}
+          </button>
+        </div>
+      </footer>
+    </section>
+  </div>
+</template>

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://papermatrix.local/schemas/questions.schema.json",
+  "title": "PaperMatrix Paper Questions",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "paper_id", "revision", "updated_at", "questions"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "paper_id": {"type": "string", "format": "uuid"},
+    "revision": {"type": "integer", "minimum": 1},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question_id", "paper_id", "question", "status", "answer", "evidence", "tags", "created_at", "updated_at"],
+        "properties": {
+          "question_id": {"type": "string", "format": "uuid"},
+          "paper_id": {"type": "string", "format": "uuid"},
+          "question": {"type": "string", "minLength": 1, "maxLength": 5000},
+          "status": {"type": "string", "enum": ["open", "answered", "deferred"]},
+          "answer": {"type": "string", "maxLength": 50000},
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["evidence_id", "paper_id", "page_label", "pdf_page_index", "section", "figure", "table", "locator_note", "source_item_id"],
+              "properties": {
+                "evidence_id": {"type": "string", "format": "uuid"},
+                "paper_id": {"type": "string", "format": "uuid"},
+                "page_label": {"type": ["string", "null"], "maxLength": 40},
+                "pdf_page_index": {"type": ["integer", "null"], "minimum": 1},
+                "section": {"type": ["string", "null"], "maxLength": 200},
+                "figure": {"type": ["string", "null"], "maxLength": 80},
+                "table": {"type": ["string", "null"], "maxLength": 80},
+                "locator_note": {"type": "string", "maxLength": 2000},
+                "source_item_id": {"type": ["string", "null"], "maxLength": 120}
+              }
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {"type": "string", "maxLength": 80},
+            "uniqueItems": true
+          },
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      }
+    }
+  }
+}

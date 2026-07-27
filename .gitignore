@@ -1,0 +1,49 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+*.local.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+dist/
+*.egg-info/
+
+# Node
+node_modules/
+frontend/.npm-cache/
+frontend/dist/
+frontend/coverage/
+
+# IDE
+.vscode/
+.idea/
+
+# Local Codex instructions and private sample data
+/AGENTS.md
+.codex-prompts/
+examples/
+
+# Runtime workspaces and user papers
+workspace/
+workspaces/
+*.pdf
+*.PDF
+
+# Temp and locks
+*.tmp
+*.lock
+!backend/requirements.lock
+~$*.xlsx
+
+# Logs
+*.log

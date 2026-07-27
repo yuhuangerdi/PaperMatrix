@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://papermatrix.local/schemas/paper.schema.json",
+  "title": "PaperMatrix Paper",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "paper_id", "project_id", "source", "bibliography", "organization", "structured_summary", "created_at", "updated_at", "revision"],
+  "properties": {
+    "schema_version": {"const": 5},
+    "paper_id": {"type": "string", "format": "uuid"},
+    "project_id": {"type": "string", "format": "uuid"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "path_mode", "original_filename", "size_bytes", "modified_at", "fingerprint", "sha256", "page_count", "status"],
+      "properties": {
+        "path": {"type": ["string", "null"], "minLength": 1},
+        "path_mode": {"type": ["string", "null"], "enum": ["absolute", "workspace_relative", null]},
+        "original_filename": {"type": ["string", "null"]},
+        "size_bytes": {"type": ["integer", "null"], "minimum": 0},
+        "modified_at": {"type": ["string", "null"], "format": "date-time"},
+        "fingerprint": {"type": ["string", "null"], "minLength": 1},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "page_count": {"type": ["integer", "null"], "minimum": 1},
+        "status": {"type": "string", "enum": ["available", "missing", "changed", "unreadable", "unlinked"]}
+      }
+    },
+    "bibliography": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "short_title", "authors", "affiliations", "year", "venue", "publication_date", "citation_count", "language", "keywords", "abstract_text", "publication_type", "doi", "arxiv_id", "urls", "code_url", "data_url"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "short_title": {"type": "string"},
+        "authors": {"type": "array", "items": {"type": "string"}},
+        "affiliations": {"type": "array", "items": {"type": "string"}},
+        "year": {"type": ["integer", "null"], "minimum": 1800, "maximum": 2200},
+        "venue": {"type": ["string", "null"]},
+        "publication_date": {"type": ["string", "null"], "format": "date"},
+        "citation_count": {"type": ["integer", "null"], "minimum": 0},
+        "language": {"type": ["string", "null"]},
+        "keywords": {"type": "array", "items": {"type": "string"}},
+        "abstract_text": {"type": "string"},
+        "publication_type": {"type": "string", "enum": ["conference", "journal", "preprint", "thesis", "report", "other"]},
+        "doi": {"type": ["string", "null"]},
+        "arxiv_id": {"type": ["string", "null"]},
+        "urls": {"type": "array", "items": {"type": "string", "format": "uri"}},
+        "code_url": {"type": ["string", "null"], "format": "uri"},
+        "data_url": {"type": ["string", "null"], "format": "uri"}
+      }
+    },
+    "organization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topics", "tags", "group", "reading_date", "reading_status", "priority", "importance_score", "confidence_score", "reproduction_value", "writing_uses", "one_sentence_summary"],
+      "properties": {
+        "topics": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "tags": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "group": {"type": ["string", "null"], "maxLength": 120},
+        "reading_date": {"type": ["string", "null"], "format": "date"},
+        "reading_status": {"type": "string", "enum": ["unread", "skimmed", "deep_read", "summarized", "reported"]},
+        "priority": {"type": ["string", "null"], "enum": ["A", "B", "C", "D", null]},
+        "importance_score": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+        "confidence_score": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+        "reproduction_value": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+        "writing_uses": {"type": "array", "items": {"type": "string", "enum": ["INTRO", "RELATED", "METHOD", "BASELINE", "DATASET", "METRIC", "LIMITATION", "DISCUSSION", "FUTURE"]}, "uniqueItems": true},
+        "one_sentence_summary": {"type": "string"}
+      }
+    },
+    "structured_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["background", "related_work", "approach", "challenges", "innovations", "additional_contribution", "experiment", "evaluation", "items"],
+      "properties": {
+        "background": {"type": "object", "additionalProperties": true},
+        "related_work": {"type": "object", "additionalProperties": true},
+        "approach": {"type": "object", "additionalProperties": true},
+        "challenges": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+        "innovations": {"type": "array", "maxItems": 3, "items": {"type": "object", "additionalProperties": true}},
+        "additional_contribution": {"type": "object", "additionalProperties": true},
+        "experiment": {"type": "object", "additionalProperties": true},
+        "evaluation": {"type": "object", "additionalProperties": true},
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["item_id", "kind", "title", "summary", "section_key", "section_title", "section_order", "source_anchor", "source_note_revision", "attributes", "evidence_refs", "tags", "writing_uses", "created_at", "updated_at"],
+            "properties": {
+              "item_id": {"type": "string", "format": "uuid"},
+              "kind": {
+                "type": "string",
+                "enum": ["research_problem", "scenario", "method", "method_component", "mechanism", "challenge", "innovation", "contribution", "experiment", "finding", "author_limitation", "reviewer_limitation", "condition"]
+              },
+              "title": {"type": "string", "minLength": 1, "maxLength": 300},
+              "summary": {"type": "string", "maxLength": 20000},
+              "section_key": {"type": ["string", "null"], "maxLength": 40},
+              "section_title": {"type": ["string", "null"], "maxLength": 300},
+              "section_order": {"type": ["integer", "null"], "minimum": 1},
+              "source_anchor": {"type": ["string", "null"], "maxLength": 80},
+              "source_note_revision": {"type": ["integer", "null"], "minimum": 1},
+              "attributes": {
+                "type": "object",
+                "additionalProperties": {"type": "string"}
+              },
+              "evidence_refs": {
+                "type": "array",
+                "items": {"$ref": "#/$defs/evidenceReference"}
+              },
+              "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "uniqueItems": true
+              },
+              "writing_uses": {
+                "type": "array",
+                "items": {"type": "string", "enum": ["INTRO", "RELATED", "METHOD", "BASELINE", "DATASET", "METRIC", "LIMITATION", "DISCUSSION", "FUTURE"]},
+                "uniqueItems": true
+              },
+              "created_at": {"type": "string", "format": "date-time"},
+              "updated_at": {"type": "string", "format": "date-time"}
+            }
+          }
+        }
+      }
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "revision": {"type": "integer", "minimum": 1}
+  },
+  "$defs": {
+    "evidenceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "paper_id", "page_label", "pdf_page_index", "section", "figure", "table", "locator_note", "source_item_id"],
+      "properties": {
+        "evidence_id": {"type": "string", "format": "uuid"},
+        "paper_id": {"type": "string", "format": "uuid"},
+        "page_label": {"type": ["string", "null"], "maxLength": 40},
+        "pdf_page_index": {"type": ["integer", "null"], "minimum": 1},
+        "section": {"type": ["string", "null"], "maxLength": 200},
+        "figure": {"type": ["string", "null"], "maxLength": 80},
+        "table": {"type": ["string", "null"], "maxLength": 80},
+        "locator_note": {"type": "string", "maxLength": 2000},
+        "source_item_id": {"type": ["string", "null"], "maxLength": 120}
+      }
+    }
+  }
+}

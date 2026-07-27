@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://papermatrix.local/schemas/research-gaps.schema.json",
+  "title": "PaperMatrix Research Gaps",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project_id", "revision", "gaps"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "project_id": {"type": "string", "format": "uuid"},
+    "revision": {"type": "integer", "minimum": 1},
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gap_id", "title", "status", "problem_statement", "supporting_paper_ids", "current_approaches", "why_unsolved", "potential_approach", "validation_plan", "risks", "notes", "created_at", "updated_at"],
+        "properties": {
+          "gap_id": {"type": "string", "format": "uuid"},
+          "title": {"type": "string", "minLength": 1},
+          "status": {"type": "string", "enum": ["clue", "validating", "candidate", "rejected"]},
+          "problem_statement": {"type": "string"},
+          "supporting_paper_ids": {"type": "array", "items": {"type": "string", "format": "uuid"}, "uniqueItems": true},
+          "current_approaches": {"type": "string"},
+          "why_unsolved": {"type": "string"},
+          "potential_approach": {"type": "string"},
+          "validation_plan": {"type": "string"},
+          "risks": {"type": "string"},
+          "notes": {"type": "string"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      }
+    }
+  }
+}

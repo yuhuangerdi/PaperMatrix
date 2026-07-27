@@ -1,0 +1,334 @@
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from papermatrix.core.config import Settings
+from papermatrix.main import create_app
+
+
+def initialized_paper(tmp_path: Path) -> tuple[TestClient, Path, str, str]:
+    repository_root = Path(__file__).resolve().parents[2]
+    app = create_app(
+        Settings(workspace_root=tmp_path / "default-workspace"),
+        schema_root=repository_root / "contracts" / "schemas",
+        local_config_path=tmp_path / "papermatrix.local.yaml",
+    )
+    client = TestClient(app)
+    workspace_root = tmp_path / "workspace"
+    paper_root = tmp_path / "library"
+    paper_root.mkdir()
+    initialized = client.post(
+        "/api/v1/workspace/initialize",
+        json={
+            "root_path": str(workspace_root),
+            "name": "研究",
+            "allowed_paper_roots": [str(paper_root)],
+        },
+    )
+    assert initialized.status_code == 201
+    project = client.post(
+        "/api/v1/projects",
+        json={"name": "Evidence", "topic": "", "description": "", "tags": []},
+    ).json()
+    paper = client.post(
+        f"/api/v1/projects/{project['project_id']}/papers/manual",
+        json={"title": "Evidence First Research"},
+    ).json()
+    return client, workspace_root, project["project_id"], paper["paper_id"]
+
+
+def test_note_template_save_and_revision_conflict(tmp_path: Path) -> None:
+    client, workspace_root, project_id, paper_id = initialized_paper(tmp_path)
+    endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/note"
+
+    initial = client.get(endpoint)
+    assert initial.status_code == 200
+    assert initial.json()["revision"] == 0
+    assert "# Evidence First Research" in initial.json()["markdown"]
+    assert not list((workspace_root / "projects" / project_id / "notes").glob("*.md"))
+
+    saved = client.put(
+        endpoint,
+        json={"markdown": "# My note\n\nEvidence on page 3.", "expected_revision": 0},
+    )
+    assert saved.status_code == 200
+    assert saved.json()["revision"] == 1
+    note_path = workspace_root / "projects" / project_id / "notes" / f"{paper_id}.md"
+    persisted = note_path.read_text(encoding="utf-8")
+    assert "revision: 1" in persisted
+    assert "# My note" in persisted
+
+    stale = client.put(
+        endpoint,
+        json={"markdown": "stale overwrite", "expected_revision": 0},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "PM-CONFLICT-001"
+    assert "stale overwrite" not in note_path.read_text(encoding="utf-8")
+
+
+def test_question_create_answer_evidence_conflict_and_delete(tmp_path: Path) -> None:
+    client, workspace_root, project_id, paper_id = initialized_paper(tmp_path)
+    endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/questions"
+
+    initial = client.get(endpoint)
+    assert initial.status_code == 200
+    assert initial.json()["revision"] == 0
+    assert initial.json()["questions"] == []
+
+    created = client.post(
+        endpoint,
+        json={
+            "question": "主要结论由哪项实验支持?",
+            "status": "open",
+            "answer": "",
+            "evidence": [],
+            "tags": ["experiment", "experiment"],
+            "expected_revision": 0,
+        },
+    )
+    assert created.status_code == 201
+    document = created.json()
+    assert document["revision"] == 1
+    assert document["questions"][0]["tags"] == ["experiment"]
+    question_id = document["questions"][0]["question_id"]
+
+    answered = client.patch(
+        f"{endpoint}/{question_id}",
+        json={
+            "question": "主要结论由哪项实验支持?",
+            "status": "answered",
+            "answer": "由表 3 的主实验支持。",
+            "evidence": [
+                {
+                    "paper_id": paper_id,
+                    "page_label": "8",
+                    "pdf_page_index": 9,
+                    "section": "Evaluation",
+                    "figure": None,
+                    "table": "Table 3",
+                    "locator_note": "主结果",
+                    "source_item_id": None,
+                }
+            ],
+            "tags": ["experiment"],
+            "expected_revision": 1,
+        },
+    )
+    assert answered.status_code == 200
+    assert answered.json()["revision"] == 2
+    item = answered.json()["questions"][0]
+    assert item["status"] == "answered"
+    assert item["evidence"][0]["paper_id"] == paper_id
+    assert item["evidence"][0]["table"] == "Table 3"
+
+    stale = client.patch(
+        f"{endpoint}/{question_id}",
+        json={
+            "question": "过期修改",
+            "status": "open",
+            "answer": "",
+            "evidence": [],
+            "tags": [],
+            "expected_revision": 1,
+        },
+    )
+    assert stale.status_code == 409
+
+    deleted = client.delete(f"{endpoint}/{question_id}?expected_revision=2")
+    assert deleted.status_code == 200
+    assert deleted.json()["revision"] == 3
+    assert deleted.json()["questions"] == []
+    questions_path = workspace_root / "projects" / project_id / "questions" / f"{paper_id}.yaml"
+    assert questions_path.is_file()
+    assert "revision: 3" in questions_path.read_text(encoding="utf-8")
+
+
+def test_answered_question_requires_answer(tmp_path: Path) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    response = client.post(
+        f"/api/v1/projects/{project_id}/papers/{paper_id}/questions",
+        json={
+            "question": "是否回答?",
+            "status": "answered",
+            "answer": "",
+            "evidence": [],
+            "tags": [],
+            "expected_revision": 0,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_analysis_item_crud_evidence_and_revision_conflict(tmp_path: Path) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/analysis"
+
+    initial = client.get(endpoint)
+    assert initial.status_code == 200
+    assert initial.json()["revision"] == 1
+    assert initial.json()["items"] == []
+
+    created = client.post(
+        f"{endpoint}/items",
+        json={
+            "kind": "method",
+            "title": "Evidence-guided planning",
+            "summary": "The planner links decisions to observations.",
+            "attributes": {"architecture": "planner-executor"},
+            "evidence_refs": [
+                {
+                    "paper_id": "00000000-0000-4000-8000-000000000000",
+                    "page_label": "6",
+                    "pdf_page_index": 7,
+                    "section": "Method",
+                    "figure": "Figure 2",
+                    "table": None,
+                    "locator_note": "Architecture overview",
+                    "source_item_id": None,
+                }
+            ],
+            "tags": ["agent", "agent"],
+            "writing_uses": ["METHOD", "METHOD"],
+            "expected_revision": 1,
+        },
+    )
+    assert created.status_code == 201
+    document = created.json()
+    assert document["revision"] == 2
+    item = document["items"][0]
+    assert item["tags"] == ["agent"]
+    assert item["writing_uses"] == ["METHOD"]
+    assert item["evidence_refs"][0]["paper_id"] == paper_id
+    item_id = item["item_id"]
+
+    updated = client.patch(
+        f"{endpoint}/items/{item_id}",
+        json={
+            "kind": "finding",
+            "title": "Evidence improves recovery",
+            "summary": "The ablation reports fewer unrecovered failures.",
+            "attributes": {"metric": "recovery rate"},
+            "evidence_refs": [],
+            "tags": ["result"],
+            "writing_uses": ["DISCUSSION"],
+            "expected_revision": 2,
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["revision"] == 3
+    assert updated.json()["items"][0]["kind"] == "finding"
+
+    stale = client.patch(
+        f"{endpoint}/items/{item_id}",
+        json={
+            "kind": "finding",
+            "title": "Stale overwrite",
+            "summary": "",
+            "attributes": {},
+            "evidence_refs": [],
+            "tags": [],
+            "writing_uses": [],
+            "expected_revision": 2,
+        },
+    )
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "PM-CONFLICT-001"
+
+    deleted = client.delete(f"{endpoint}/items/{item_id}?expected_revision=3")
+    assert deleted.status_code == 200
+    assert deleted.json()["revision"] == 4
+    assert deleted.json()["items"] == []
+
+
+def test_note_candidate_preview_confirm_duplicate_and_stale_protection(tmp_path: Path) -> None:
+    client, workspace_root, project_id, paper_id = initialized_paper(tmp_path)
+    note_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/note"
+    analysis_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/analysis"
+    markdown = """# Evidence
+
+## 3. 本文解决思路和整体框架
+### 3.1 核心思路
+使用证据反馈重新规划失败任务。
+
+## 8. 批判性评价
+### 8.2 作者承认的局限
+只在三个公开基准上验证。
+"""
+    saved = client.put(
+        note_endpoint,
+        json={"markdown": markdown, "expected_revision": 0},
+    )
+    assert saved.status_code == 200
+    note_path = workspace_root / "projects" / project_id / "notes" / f"{paper_id}.md"
+    note_before = note_path.read_bytes()
+    paper_path = workspace_root / "projects" / project_id / "papers" / f"{paper_id}.yaml"
+    paper_before = paper_path.read_bytes()
+
+    preview = client.post(f"{analysis_endpoint}/parse-note")
+    assert preview.status_code == 200
+    body = preview.json()
+    assert body["note_revision"] == 1
+    assert body["paper_revision"] == 1
+    assert [item["kind"] for item in body["candidates"]] == ["method", "author_limitation"]
+    assert note_path.read_bytes() == note_before
+    assert paper_path.read_bytes() == paper_before
+
+    selected_id = body["candidates"][0]["candidate_id"]
+    imported = client.post(
+        f"{analysis_endpoint}/import-candidates",
+        json={
+            "candidate_ids": [selected_id],
+            "expected_note_revision": 1,
+            "expected_paper_revision": 1,
+        },
+    )
+    assert imported.status_code == 200
+    result = imported.json()
+    assert result["analysis"]["revision"] == 2
+    assert result["imported_items"][0]["item_id"] == selected_id
+    item = result["imported_items"][0]
+    assert item["section_key"] == "section-3"
+    assert item["section_title"] == "3. 本文解决思路和整体框架"
+    assert item["section_order"] == 1
+    assert item["source_anchor"] == f"papermatrix:item:{selected_id}"
+    assert item["source_note_revision"] == 2
+    assert result["note"]["revision"] == 2
+    assert f"<!-- papermatrix:item:{selected_id} -->" in result["note"]["markdown"]
+    assert "使用证据反馈重新规划失败任务。" in result["note"]["markdown"]
+    assert note_path.read_bytes() != note_before
+
+    duplicate_preview = client.post(f"{analysis_endpoint}/parse-note").json()
+    duplicate = next(
+        item for item in duplicate_preview["candidates"] if item["candidate_id"] == selected_id
+    )
+    assert duplicate["duplicate_item_id"] == selected_id
+    skipped = client.post(
+        f"{analysis_endpoint}/import-candidates",
+        json={
+            "candidate_ids": [selected_id],
+            "expected_note_revision": 2,
+            "expected_paper_revision": 2,
+        },
+    )
+    assert skipped.status_code == 200
+    assert skipped.json()["analysis"]["revision"] == 2
+    assert skipped.json()["skipped_candidate_ids"] == [selected_id]
+
+    changed_note = client.put(
+        note_endpoint,
+        json={"markdown": f"{result['note']['markdown']}\n更新", "expected_revision": 2},
+    )
+    assert changed_note.status_code == 200
+    stale = client.post(
+        f"{analysis_endpoint}/import-candidates",
+        json={
+            "candidate_ids": [body["candidates"][1]["candidate_id"]],
+            "expected_note_revision": 2,
+            "expected_paper_revision": 2,
+        },
+    )
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "PM-ANALYSIS-002"
+    assert stale.json()["error"]["details"]["resource"] == "note"
+    assert client.get(analysis_endpoint).json()["revision"] == 2

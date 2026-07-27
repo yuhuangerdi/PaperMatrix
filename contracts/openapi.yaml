@@ -1,0 +1,1398 @@
+openapi: 3.1.0
+info:
+  title: PaperMatrix API
+  version: 0.1.0
+  description: Local-first file-backed research paper management API.
+servers:
+  - url: http://127.0.0.1:8000/api/v1
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: 后端健康检查
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /workspace:
+    get:
+      operationId: getWorkspace
+      summary: 获取当前工作区
+      responses:
+        "200":
+          description: Workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+    patch:
+      operationId: updateWorkspace
+      summary: 更新工作区配置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceUpdate"
+      responses:
+        "200":
+          description: Updated workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+  /workspace/initialize:
+    post:
+      operationId: initializeWorkspace
+      summary: 初始化工作区
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [root_path, name]
+              properties:
+                root_path:
+                  type: string
+                name:
+                  type: string
+                allowed_paper_roots:
+                  type: array
+                  items: { type: string }
+      responses:
+        "201":
+          description: Created workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ErrorResponse"
+  /workspace/validate-path:
+    post:
+      operationId: validatePath
+      summary: 校验后端文件系统路径
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, purpose]
+              properties:
+                path: { type: string }
+                purpose:
+                  type: string
+                  enum: [workspace, paper_root, scan_directory, registered_pdf]
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [valid]
+                properties:
+                  valid: { type: boolean }
+                  normalized_path: { type: string }
+                  readable: { type: boolean }
+                  writable: { type: boolean }
+                  reason: { type: [string, "null"] }
+  /projects:
+    get:
+      operationId: listProjects
+      summary: 项目列表
+      parameters:
+        - in: query
+          name: include_archived
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Project list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProjectSummary" }
+                  total: { type: integer, minimum: 0 }
+    post:
+      operationId: createProject
+      summary: 新建项目
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectCreate"
+      responses:
+        "201":
+          description: Created project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+  /projects/{project_id}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      operationId: getProject
+      summary: 获取项目
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+    patch:
+      operationId: updateProject
+      summary: 更新项目
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+    delete:
+      operationId: deleteProject
+      summary: 删除 PaperMatrix 项目文件，不删除源 PDF
+      parameters:
+        - in: query
+          name: confirm
+          required: true
+          schema: { type: boolean }
+      responses:
+        "204": { description: Deleted }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+  /paper-sources/scan:
+    post:
+      operationId: scanPaperDirectory
+      summary: 扫描允许目录中的 PDF 候选，不写入项目
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [directory]
+              properties:
+                directory: { type: string }
+                recursive: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Scan result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scan_token, items]
+                properties:
+                  scan_token: { type: string }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/PaperCandidate" }
+                  warnings:
+                    type: array
+                    items: { type: string }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/papers:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      operationId: listPapers
+      summary: 项目论文列表
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+        - in: query
+          name: source_status
+          schema:
+            {
+              type: string,
+              enum: [available, missing, changed, unreadable, unlinked],
+            }
+        - in: query
+          name: group
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: page_size
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - in: query
+          name: sort
+          schema: { type: string, default: -updated_at }
+      responses:
+        "200":
+          description: Paper list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total, page, page_size]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/PaperSummary" }
+                  total: { type: integer }
+                  page: { type: integer }
+                  page_size: { type: integer }
+  /projects/{project_id}/papers/import:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    post:
+      operationId: importPapers
+      summary: 登记扫描得到的 PDF 引用，不复制文件
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scan_token, candidate_ids]
+              properties:
+                scan_token: { type: string }
+                candidate_ids:
+                  type: array
+                  minItems: 1
+                  items: { type: string }
+      responses:
+        "201":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResult"
+  /projects/{project_id}/papers/upload:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    post:
+      operationId: uploadPaperForInspection
+      summary: 瞬时读取单个 PDF 并创建未关联记录，不保存 PDF
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                title: { type: [string, "null"] }
+      responses:
+        "201":
+          description: Created unlinked paper record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Paper" }
+        "413": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/papers/link:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    post:
+      operationId: linkSinglePaper
+      summary: 登记允许目录内的单个 PDF 路径
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string }
+      responses:
+        "201":
+          description: Created linked paper record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Paper" }
+  /projects/{project_id}/papers/manual:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    post:
+      operationId: createManualPaper
+      summary: 创建尚未关联 PDF 的论文记录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "201":
+          description: Created unlinked paper record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Paper" }
+  /projects/{project_id}/papers/{paper_id}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+    get:
+      operationId: getPaper
+      responses:
+        "200":
+          description: Paper
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Paper" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+    patch:
+      operationId: updatePaper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaperUpdate"
+      responses:
+        "200":
+          description: Updated paper
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Paper" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+    delete:
+      operationId: deletePaperRecord
+      summary: 删除项目中的记录和笔记，不删除源 PDF
+      parameters:
+        - in: query
+          name: confirm_metadata_only
+          required: true
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Deleted PaperMatrix files
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [source_pdf_untouched, removed_files]
+                properties:
+                  source_pdf_untouched: { type: boolean, const: true }
+                  removed_files:
+                    type: array
+                    items: { type: string }
+  /projects/{project_id}/papers/{paper_id}/relink:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+    post:
+      operationId: relinkPaper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_path, expected_revision]
+              properties:
+                new_path: { type: string }
+                expected_revision: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Relinked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Paper" }
+  /projects/{project_id}/papers/{paper_id}/note:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+    get:
+      operationId: getPaperNote
+      responses:
+        "200":
+          description: Note
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperNote" }
+    put:
+      operationId: updatePaperNote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaperNoteUpdate"
+      responses:
+        "200":
+          description: Saved note
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperNote" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/papers/{paper_id}/questions:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+    get:
+      operationId: getPaperQuestions
+      summary: 获取论文问题清单；未保存时 revision 为 0
+      responses:
+        "200":
+          description: Questions document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QuestionsDocument" }
+    post:
+      operationId: createPaperQuestion
+      summary: 添加问题，答案可以为空
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QuestionInput" }
+      responses:
+        "201":
+          description: Updated questions document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QuestionsDocument" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/papers/{paper_id}/questions/{question_id}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+      - in: path
+        name: question_id
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updatePaperQuestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QuestionInput" }
+      responses:
+        "200":
+          description: Updated questions document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QuestionsDocument" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+    delete:
+      operationId: deletePaperQuestion
+      parameters:
+        - in: query
+          name: expected_revision
+          required: true
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Updated questions document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QuestionsDocument" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/papers/{paper_id}/analysis:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+    get:
+      operationId: getPaperAnalysis
+      summary: 获取论文中可用于比较和可视化的结构化分析条目
+      responses:
+        "200":
+          description: Paper analysis document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperAnalysisDocument" }
+  /projects/{project_id}/papers/{paper_id}/analysis/parse-note:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+    post:
+      operationId: previewPaperNoteAnalysis
+      summary: 只读解析已保存的结构化笔记并生成待审阅候选
+      responses:
+        "200":
+          description: Candidate preview without authoritative file changes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NoteParsePreview" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+        "422": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/papers/{paper_id}/analysis/import-candidates:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+    post:
+      operationId: importPaperNoteAnalysisCandidates
+      summary: 确认选中候选并一次性写入论文分析条目
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CandidateImportRequest" }
+      responses:
+        "200":
+          description: Import result and updated analysis document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CandidateImportResult" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+        "422": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/papers/{paper_id}/analysis/items:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+    post:
+      operationId: createPaperAnalysisItem
+      summary: 添加带稳定 ID 和证据引用的分析条目
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AnalysisItemInput" }
+      responses:
+        "201":
+          description: Updated analysis document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperAnalysisDocument" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/papers/{paper_id}/analysis/items/{item_id}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+      - in: path
+        name: item_id
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updatePaperAnalysisItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AnalysisItemInput" }
+      responses:
+        "200":
+          description: Updated analysis document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperAnalysisDocument" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+    delete:
+      operationId: deletePaperAnalysisItem
+      parameters:
+        - in: query
+          name: expected_revision
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Updated analysis document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperAnalysisDocument" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/relations:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      operationId: getRelations
+      responses:
+        "200":
+          description: Relations document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RelationsDocument" }
+    put:
+      operationId: replaceRelations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RelationsDocument" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RelationsDocument" }
+  /projects/{project_id}/research-gaps:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      operationId: listResearchGaps
+      responses:
+        "200":
+          description: Gaps
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ResearchGap" }
+    post:
+      operationId: createResearchGap
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResearchGapCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResearchGap" }
+  /projects/{project_id}/exports:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    post:
+      operationId: createExport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, format]
+              properties:
+                kind:
+                  type: string
+                  enum:
+                    [
+                      literature_matrix,
+                      method_comparison,
+                      experiment_comparison,
+                      research_gaps,
+                      paper_note,
+                      one_page_report,
+                      synthesis,
+                    ]
+                format:
+                  type: string
+                  enum: [csv, xlsx, markdown]
+                paper_ids:
+                  type: array
+                  items: { type: string, format: uuid }
+                overwrite: { type: boolean, default: false }
+      responses:
+        "201":
+          description: Export created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportResult"
+components:
+  parameters:
+    ProjectId:
+      in: path
+      name: project_id
+      required: true
+      schema: { type: string, format: uuid }
+    PaperId:
+      in: path
+      name: paper_id
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    ErrorResponse:
+      description: PaperMatrix error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, version, workspace_initialized]
+      properties:
+        status: { type: string, const: ok }
+        version: { type: string }
+        workspace_initialized: { type: boolean }
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: { type: object, additionalProperties: true }
+            action: { type: [string, "null"] }
+            request_id: { type: string }
+    Workspace:
+      type: object
+      required: [workspace_id, name, root_path, allowed_paper_roots, revision]
+      properties:
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        root_path: { type: string }
+        allowed_paper_roots:
+          type: array
+          items: { type: string }
+        revision: { type: integer, minimum: 1 }
+    WorkspaceUpdate:
+      type: object
+      required: [name, allowed_paper_roots, expected_revision]
+      properties:
+        name: { type: string }
+        allowed_paper_roots:
+          type: array
+          items: { type: string }
+        expected_revision: { type: integer, minimum: 1 }
+    ProjectCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        topic: { type: string, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+        tags:
+          type: array
+          items: { type: string }
+    ProjectUpdate:
+      allOf:
+        - $ref: "#/components/schemas/ProjectCreate"
+        - type: object
+          required: [status, expected_revision]
+          properties:
+            status: { type: string, enum: [active, archived] }
+            expected_revision: { type: integer, minimum: 1 }
+    Project:
+      allOf:
+        - $ref: "#/components/schemas/ProjectCreate"
+        - type: object
+          required: [project_id, slug, status, created_at, updated_at, revision]
+          properties:
+            project_id: { type: string, format: uuid }
+            slug: { type: string }
+            status: { type: string, enum: [active, archived] }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+            revision: { type: integer, minimum: 1 }
+    ProjectSummary:
+      allOf:
+        - $ref: "#/components/schemas/Project"
+        - type: object
+          properties:
+            paper_count: { type: integer, minimum: 0 }
+            deep_read_count: { type: integer, minimum: 0 }
+            reported_count: { type: integer, minimum: 0 }
+    PaperCandidate:
+      type: object
+      required:
+        [candidate_id, display_path, filename, title, size_bytes, readable]
+      properties:
+        candidate_id: { type: string }
+        display_path: { type: string }
+        filename: { type: string }
+        title: { type: string }
+        size_bytes: { type: integer, minimum: 0 }
+        page_count: { type: [integer, "null"] }
+        readable: { type: boolean }
+    ImportResult:
+      type: object
+      required: [imported, skipped]
+      properties:
+        imported:
+          type: array
+          items: { $ref: "#/components/schemas/Paper" }
+        skipped:
+          type: array
+          items:
+            type: object
+            properties:
+              candidate_id: { type: string }
+              reason: { type: string }
+    PaperSummary:
+      type: object
+      required:
+        [
+          paper_id,
+          project_id,
+          title,
+          authors,
+          affiliations,
+          topics,
+          tags,
+          keywords,
+          source_status,
+          reading_status,
+          updated_at,
+          revision,
+        ]
+      properties:
+        paper_id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        title: { type: string }
+        short_title: { type: string }
+        authors:
+          type: array
+          items: { type: string }
+        affiliations:
+          type: array
+          items: { type: string }
+        year: { type: [integer, "null"] }
+        venue: { type: [string, "null"] }
+        publication_date: { type: [string, "null"], format: date }
+        reading_date: { type: [string, "null"], format: date }
+        citation_count: { type: [integer, "null"], minimum: 0 }
+        language: { type: [string, "null"] }
+        keywords:
+          type: array
+          items: { type: string }
+        group: { type: [string, "null"] }
+        topics:
+          type: array
+          items: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        reading_status:
+          {
+            type: string,
+            enum: [unread, skimmed, deep_read, summarized, reported],
+          }
+        importance_score: { type: [integer, "null"], minimum: 1, maximum: 5 }
+        writing_uses:
+          type: array
+          items: { type: string }
+        source_status:
+          {
+            type: string,
+            enum: [available, missing, changed, unreadable, unlinked],
+          }
+        source_filename: { type: [string, "null"] }
+        page_count: { type: [integer, "null"], minimum: 1 }
+        one_sentence_summary: { type: string }
+        updated_at: { type: string, format: date-time }
+        revision: { type: integer, minimum: 1 }
+    Paper:
+      type: object
+      required:
+        [
+          schema_version,
+          paper_id,
+          project_id,
+          source,
+          bibliography,
+          organization,
+          structured_summary,
+          created_at,
+          updated_at,
+          revision,
+        ]
+      properties:
+        schema_version: { type: integer, const: 5 }
+        paper_id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        source:
+          type: object
+          required:
+            [
+              path,
+              path_mode,
+              original_filename,
+              size_bytes,
+              modified_at,
+              fingerprint,
+              sha256,
+              page_count,
+              status,
+            ]
+          properties:
+            path: { type: [string, "null"] }
+            path_mode:
+              {
+                type: [string, "null"],
+                enum: [absolute, workspace_relative, null],
+              }
+            original_filename: { type: [string, "null"] }
+            size_bytes: { type: [integer, "null"] }
+            modified_at: { type: [string, "null"], format: date-time }
+            fingerprint: { type: [string, "null"] }
+            sha256: { type: [string, "null"] }
+            page_count: { type: [integer, "null"] }
+            status:
+              {
+                type: string,
+                enum: [available, missing, changed, unreadable, unlinked],
+              }
+        bibliography: { type: object, additionalProperties: true }
+        organization: { type: object, additionalProperties: true }
+        structured_summary:
+          type: object
+          additionalProperties: true
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/AnalysisItem" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        revision: { type: integer, minimum: 1 }
+    PaperUpdate:
+      type: object
+      required:
+        [
+          title,
+          authors,
+          affiliations,
+          keywords,
+          abstract_text,
+          expected_revision,
+        ]
+      properties:
+        expected_revision: { type: integer, minimum: 1 }
+        title: { type: string }
+        authors:
+          type: array
+          items: { type: string }
+        affiliations:
+          type: array
+          items: { type: string }
+        venue: { type: [string, "null"] }
+        publication_date: { type: [string, "null"], format: date }
+        reading_date: { type: [string, "null"], format: date }
+        citation_count: { type: [integer, "null"], minimum: 0 }
+        language: { type: [string, "null"] }
+        keywords:
+          type: array
+          items: { type: string }
+        abstract_text: { type: string }
+        group: { type: [string, "null"] }
+    PaperNote:
+      type: object
+      required: [paper_id, markdown, revision, updated_at]
+      properties:
+        paper_id: { type: string, format: uuid }
+        markdown: { type: string }
+        revision: { type: integer, minimum: 0 }
+        updated_at: { type: string, format: date-time }
+    PaperNoteUpdate:
+      type: object
+      required: [markdown, expected_revision]
+      properties:
+        markdown: { type: string }
+        expected_revision: { type: integer, minimum: 0 }
+    EvidenceReference:
+      type: object
+      required:
+        [
+          paper_id,
+          page_label,
+          pdf_page_index,
+          section,
+          figure,
+          table,
+          locator_note,
+          source_item_id,
+        ]
+      properties:
+        evidence_id: { type: string, format: uuid }
+        paper_id: { type: string, format: uuid }
+        page_label: { type: [string, "null"] }
+        pdf_page_index: { type: [integer, "null"], minimum: 1 }
+        section: { type: [string, "null"] }
+        figure: { type: [string, "null"] }
+        table: { type: [string, "null"] }
+        locator_note: { type: string }
+        source_item_id: { type: [string, "null"] }
+    ReadingQuestion:
+      type: object
+      required:
+        [
+          question_id,
+          paper_id,
+          question,
+          status,
+          answer,
+          evidence,
+          tags,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        question_id: { type: string, format: uuid }
+        paper_id: { type: string, format: uuid }
+        question: { type: string, minLength: 1, maxLength: 5000 }
+        status: { type: string, enum: [open, answered, deferred] }
+        answer: { type: string, maxLength: 50000 }
+        evidence:
+          type: array
+          items: { $ref: "#/components/schemas/EvidenceReference" }
+        tags:
+          type: array
+          items: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    QuestionInput:
+      type: object
+      required: [question, status, answer, evidence, tags, expected_revision]
+      properties:
+        question: { type: string, minLength: 1, maxLength: 5000 }
+        status: { type: string, enum: [open, answered, deferred] }
+        answer: { type: string, maxLength: 50000 }
+        evidence:
+          type: array
+          items: { $ref: "#/components/schemas/EvidenceReference" }
+        tags:
+          type: array
+          items: { type: string }
+        expected_revision: { type: integer, minimum: 0 }
+    QuestionsDocument:
+      type: object
+      required: [schema_version, paper_id, revision, updated_at, questions]
+      properties:
+        schema_version: { type: integer, const: 1 }
+        paper_id: { type: string, format: uuid }
+        revision: { type: integer, minimum: 0 }
+        updated_at: { type: string, format: date-time }
+        questions:
+          type: array
+          items: { $ref: "#/components/schemas/ReadingQuestion" }
+    AnalysisItem:
+      type: object
+      required:
+        [
+          item_id,
+          kind,
+          title,
+          summary,
+          section_key,
+          section_title,
+          section_order,
+          source_anchor,
+          source_note_revision,
+          attributes,
+          evidence_refs,
+          tags,
+          writing_uses,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        item_id: { type: string, format: uuid }
+        kind:
+          type: string
+          enum:
+            [
+              research_problem,
+              scenario,
+              method,
+              method_component,
+              mechanism,
+              challenge,
+              innovation,
+              contribution,
+              experiment,
+              finding,
+              author_limitation,
+              reviewer_limitation,
+              condition,
+            ]
+        title: { type: string, minLength: 1, maxLength: 300 }
+        summary: { type: string, maxLength: 20000 }
+        section_key: { type: [string, "null"], maxLength: 40 }
+        section_title: { type: [string, "null"], maxLength: 300 }
+        section_order: { type: [integer, "null"], minimum: 1 }
+        source_anchor: { type: [string, "null"], maxLength: 80 }
+        source_note_revision: { type: [integer, "null"], minimum: 1 }
+        attributes:
+          type: object
+          additionalProperties: { type: string }
+        evidence_refs:
+          type: array
+          items: { $ref: "#/components/schemas/EvidenceReference" }
+        tags:
+          type: array
+          items: { type: string }
+          uniqueItems: true
+        writing_uses:
+          type: array
+          items:
+            type: string
+            enum:
+              [
+                INTRO,
+                RELATED,
+                METHOD,
+                BASELINE,
+                DATASET,
+                METRIC,
+                LIMITATION,
+                DISCUSSION,
+                FUTURE,
+              ]
+          uniqueItems: true
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AnalysisItemInput:
+      type: object
+      required:
+        [
+          kind,
+          title,
+          summary,
+          attributes,
+          evidence_refs,
+          tags,
+          writing_uses,
+          expected_revision,
+        ]
+      properties:
+        kind:
+          type: string
+          enum:
+            [
+              research_problem,
+              scenario,
+              method,
+              method_component,
+              mechanism,
+              challenge,
+              innovation,
+              contribution,
+              experiment,
+              finding,
+              author_limitation,
+              reviewer_limitation,
+              condition,
+            ]
+        title: { type: string, minLength: 1, maxLength: 300 }
+        summary: { type: string, maxLength: 20000 }
+        attributes:
+          type: object
+          additionalProperties: { type: string }
+        evidence_refs:
+          type: array
+          items: { $ref: "#/components/schemas/EvidenceReference" }
+        tags:
+          type: array
+          items: { type: string }
+        writing_uses:
+          type: array
+          items:
+            type: string
+            enum:
+              [
+                INTRO,
+                RELATED,
+                METHOD,
+                BASELINE,
+                DATASET,
+                METRIC,
+                LIMITATION,
+                DISCUSSION,
+                FUTURE,
+              ]
+        expected_revision: { type: integer, minimum: 1 }
+    PaperAnalysisDocument:
+      type: object
+      required: [paper_id, revision, updated_at, items]
+      properties:
+        paper_id: { type: string, format: uuid }
+        revision: { type: integer, minimum: 1 }
+        updated_at: { type: string, format: date-time }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AnalysisItem" }
+    NoteAnalysisCandidate:
+      type: object
+      required:
+        [
+          candidate_id,
+          kind,
+          title,
+          summary,
+          attributes,
+          evidence_refs,
+          section_key,
+          section_title,
+          section_order,
+          source_anchor,
+          source_section,
+          source_line_start,
+          source_line_end,
+          duplicate_item_id,
+        ]
+      properties:
+        candidate_id: { type: string, format: uuid }
+        kind:
+          type: string
+          enum:
+            [
+              research_problem,
+              scenario,
+              method,
+              method_component,
+              mechanism,
+              challenge,
+              innovation,
+              contribution,
+              experiment,
+              finding,
+              author_limitation,
+              reviewer_limitation,
+              condition,
+            ]
+        title: { type: string, minLength: 1, maxLength: 300 }
+        summary: { type: string, maxLength: 20000 }
+        attributes:
+          type: object
+          additionalProperties: { type: string }
+        evidence_refs:
+          type: array
+          items: { $ref: "#/components/schemas/EvidenceReference" }
+        section_key: { type: string, maxLength: 40 }
+        section_title: { type: string, maxLength: 300 }
+        section_order: { type: integer, minimum: 1 }
+        source_anchor: { type: string, maxLength: 80 }
+        source_section: { type: string, maxLength: 300 }
+        source_line_start: { type: integer, minimum: 1 }
+        source_line_end: { type: integer, minimum: 1 }
+        duplicate_item_id:
+          oneOf:
+            - { type: string, format: uuid }
+            - { type: "null" }
+    NoteParsePreview:
+      type: object
+      required: [paper_id, note_revision, paper_revision, candidates, warnings]
+      properties:
+        paper_id: { type: string, format: uuid }
+        note_revision: { type: integer, minimum: 0 }
+        paper_revision: { type: integer, minimum: 1 }
+        candidates:
+          type: array
+          items: { $ref: "#/components/schemas/NoteAnalysisCandidate" }
+        warnings:
+          type: array
+          items: { type: string }
+    CandidateImportRequest:
+      type: object
+      required:
+        [candidate_ids, expected_note_revision, expected_paper_revision]
+      properties:
+        candidate_ids:
+          type: array
+          minItems: 1
+          items: { type: string, format: uuid }
+        expected_note_revision: { type: integer, minimum: 0 }
+        expected_paper_revision: { type: integer, minimum: 1 }
+    CandidateImportResult:
+      type: object
+      required: [analysis, note, imported_items, skipped_candidate_ids]
+      properties:
+        analysis: { $ref: "#/components/schemas/PaperAnalysisDocument" }
+        note: { $ref: "#/components/schemas/PaperNote" }
+        imported_items:
+          type: array
+          items: { $ref: "#/components/schemas/AnalysisItem" }
+        skipped_candidate_ids:
+          type: array
+          items: { type: string, format: uuid }
+    RelationsDocument:
+      type: object
+      required: [project_id, revision, relations]
+      properties:
+        project_id: { type: string, format: uuid }
+        revision: { type: integer, minimum: 1 }
+        relations:
+          type: array
+          items:
+            type: object
+            required: [relation_id, source_paper_id, target_paper_id, type]
+            properties:
+              relation_id: { type: string, format: uuid }
+              source_paper_id: { type: string, format: uuid }
+              target_paper_id: { type: string, format: uuid }
+              type:
+                type: string
+                enum:
+                  [
+                    improves,
+                    compares_with,
+                    same_dataset,
+                    same_problem,
+                    similar_framework,
+                    addresses_limitation,
+                    contradicts,
+                    combinable,
+                    baseline_for,
+                  ]
+              description: { type: string }
+              evidence: { type: string }
+    ResearchGapCreate:
+      type: object
+      required: [title, problem_statement]
+      properties:
+        title: { type: string }
+        status:
+          {
+            type: string,
+            enum: [clue, validating, candidate, rejected],
+            default: clue,
+          }
+        problem_statement: { type: string }
+        supporting_paper_ids:
+          type: array
+          items: { type: string, format: uuid }
+        current_approaches: { type: string }
+        why_unsolved: { type: string }
+        potential_approach: { type: string }
+        validation_plan: { type: string }
+        risks: { type: string }
+        notes: { type: string }
+    ResearchGap:
+      allOf:
+        - $ref: "#/components/schemas/ResearchGapCreate"
+        - type: object
+          required: [gap_id, created_at, updated_at, revision]
+          properties:
+            gap_id: { type: string, format: uuid }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+            revision: { type: integer, minimum: 1 }
+    ExportResult:
+      type: object
+      required: [export_id, kind, format, filename, created_at]
+      properties:
+        export_id: { type: string, format: uuid }
+        kind: { type: string }
+        format: { type: string }
+        filename: { type: string }
+        created_at: { type: string, format: date-time }
+        download_url: { type: string }

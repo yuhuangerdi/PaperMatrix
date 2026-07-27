@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://papermatrix.local/schemas/project.schema.json",
+  "title": "PaperMatrix Project",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project_id", "name", "slug", "topic", "description", "tags", "status", "created_at", "updated_at", "revision"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "project_id": {"type": "string", "format": "uuid"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 120},
+    "slug": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,79}$"},
+    "topic": {"type": "string", "maxLength": 200},
+    "description": {"type": "string", "maxLength": 5000},
+    "tags": {"type": "array", "items": {"type": "string", "maxLength": 80}, "uniqueItems": true},
+    "status": {"type": "string", "enum": ["active", "archived"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "revision": {"type": "integer", "minimum": 1}
+  }
+}

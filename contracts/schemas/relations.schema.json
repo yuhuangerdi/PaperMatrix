@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://papermatrix.local/schemas/relations.schema.json",
+  "title": "PaperMatrix Relations",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project_id", "revision", "relations"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "project_id": {"type": "string", "format": "uuid"},
+    "revision": {"type": "integer", "minimum": 1},
+    "relations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["relation_id", "source_paper_id", "target_paper_id", "type", "description", "evidence", "created_at", "updated_at"],
+        "properties": {
+          "relation_id": {"type": "string", "format": "uuid"},
+          "source_paper_id": {"type": "string", "format": "uuid"},
+          "target_paper_id": {"type": "string", "format": "uuid"},
+          "type": {"type": "string", "enum": ["improves", "compares_with", "same_dataset", "same_problem", "similar_framework", "addresses_limitation", "contradicts", "combinable", "baseline_for"]},
+          "description": {"type": "string"},
+          "evidence": {"type": "string"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      }
+    }
+  }
+}
