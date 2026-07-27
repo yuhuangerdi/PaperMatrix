@@ -892,7 +892,7 @@ onBeforeUnmount(() => {
         <span class="tab-count">{{ questions?.questions.length ?? 0 }}</span>
       </button>
       <button :class="{ active: activeTab === 'analysis' }" @click="activeTab = 'analysis'">
-        <ListTree :size="17" /> 分析投影
+        <ListTree :size="17" /> 分析
         <span class="tab-count">{{ analysis?.items.length ?? 0 }}</span>
       </button>
     </nav>
@@ -1326,7 +1326,7 @@ onBeforeUnmount(() => {
     <section v-else class="analysis-workspace">
       <header class="questions-header">
         <div>
-          <h2>可比较的分析投影</h2>
+          <h2>可比较的分析</h2>
           <p>
             {{ analysis?.items.length ?? 0 }} 条记录，{{ analysisWithEvidence }} 条已有证据；
             无证据条目会明确标记。
