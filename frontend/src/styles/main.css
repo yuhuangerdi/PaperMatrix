@@ -1761,6 +1761,157 @@ h1 {
   box-shadow: inset 0 0 0 2px rgba(22, 125, 109, 0.24);
 }
 
+.markdown-document {
+  min-width: 0;
+  padding: 28px 36px 40px;
+  color: #26312e;
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.markdown-document > :first-child {
+  margin-top: 0;
+}
+
+.markdown-document > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-document h1,
+.markdown-document h2,
+.markdown-document h3,
+.markdown-document h4,
+.markdown-document h5,
+.markdown-document h6 {
+  color: var(--ink);
+  line-height: 1.35;
+}
+
+.markdown-document h1 {
+  margin: 0 0 22px;
+  font-size: 26px;
+}
+
+.markdown-document h2 {
+  margin: 38px 0 16px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--line);
+  font-size: 21px;
+}
+
+.markdown-document h3 {
+  margin: 28px 0 12px;
+  font-size: 18px;
+}
+
+.markdown-document h4,
+.markdown-document h5,
+.markdown-document h6 {
+  margin: 22px 0 9px;
+  font-size: 15px;
+}
+
+.markdown-document p {
+  margin: 12px 0;
+}
+
+.markdown-document hr {
+  height: 1px;
+  margin: 28px 0;
+  background: var(--line);
+  border: 0;
+}
+
+.markdown-document ul,
+.markdown-document ol {
+  margin: 12px 0;
+  padding-left: 1.5em;
+}
+
+.markdown-document li + li {
+  margin-top: 5px;
+}
+
+.markdown-document a {
+  color: var(--teal-dark);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.markdown-document code {
+  padding: 1px 4px;
+  background: #edf2ef;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.markdown-document pre {
+  margin: 16px 0;
+  padding: 14px;
+  overflow-x: auto;
+  color: #e9f0ed;
+  background: #22312d;
+  border-radius: 5px;
+}
+
+.markdown-document pre code {
+  padding: 0;
+  color: inherit;
+  background: transparent;
+}
+
+.markdown-document blockquote {
+  margin: 16px 0;
+  padding: 8px 16px;
+  color: var(--ink-soft);
+  border-left: 3px solid #8bbcaf;
+  background: #f3f8f6;
+}
+
+.markdown-table-wrap {
+  margin: 16px 0;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.markdown-table-wrap table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.markdown-table-wrap th,
+.markdown-table-wrap td {
+  padding: 10px 12px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.markdown-table-wrap th:last-child,
+.markdown-table-wrap td:last-child {
+  border-right: 0;
+}
+
+.markdown-table-wrap tr:last-child td {
+  border-bottom: 0;
+}
+
+.markdown-table-wrap th {
+  color: var(--ink-soft);
+  background: #f5f8f6;
+  font-weight: 650;
+}
+
+.note-document-view {
+  min-height: 520px;
+}
+
 .note-item-mode {
   height: min(720px, calc(100vh - 250px));
   min-height: 520px;
@@ -1927,6 +2078,15 @@ h1 {
   min-height: 360px;
 }
 
+.note-item-document-view {
+  min-height: 360px;
+  overflow: auto;
+}
+
+.note-item-document-view.markdown-document {
+  padding: 22px;
+}
+
 .note-item-editor:disabled {
   color: #68736f;
   background: #f4f6f5;
@@ -2004,6 +2164,10 @@ h1 {
   background: var(--paper);
 }
 
+.note-favorite-content {
+  min-width: 0;
+}
+
 .note-favorite-entry {
   min-width: 0;
   display: grid;
@@ -2021,8 +2185,7 @@ h1 {
 }
 
 .note-favorite-entry strong,
-.note-favorite-entry small,
-.note-favorite-entry p {
+.note-favorite-entry small {
   overflow-wrap: anywhere;
 }
 
@@ -2030,14 +2193,34 @@ h1 {
   font-size: 13px;
 }
 
-.note-favorite-entry p {
-  max-height: 88px;
-  margin: 4px 0 0;
+.note-favorite-document.markdown-document {
+  max-height: 180px;
+  padding: 0 20px 18px;
   overflow: hidden;
-  color: var(--ink-soft);
   font-size: 12px;
-  line-height: 1.55;
-  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.note-favorite-document.markdown-document h1,
+.note-favorite-document.markdown-document h2,
+.note-favorite-document.markdown-document h3,
+.note-favorite-document.markdown-document h4,
+.note-favorite-document.markdown-document h5,
+.note-favorite-document.markdown-document h6 {
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0;
+  font-size: 13px;
+}
+
+.note-favorite-document.markdown-document p,
+.note-favorite-document.markdown-document ul,
+.note-favorite-document.markdown-document ol {
+  margin: 6px 0;
+}
+
+.note-favorite-document .markdown-table-wrap {
+  margin: 8px 0;
 }
 
 .note-favorites-grid .note-item-favorite-toggle {

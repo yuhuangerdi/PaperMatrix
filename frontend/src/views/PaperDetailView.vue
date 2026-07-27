@@ -22,6 +22,7 @@ import { onBeforeRouteLeave, RouterLink, useRoute } from 'vue-router'
 
 import { ApiError } from '@/api/client'
 import AnalysisItemDialog from '@/components/AnalysisItemDialog.vue'
+import MarkdownDocument from '@/components/MarkdownDocument.vue'
 import NoteCandidateReviewDialog from '@/components/NoteCandidateReviewDialog.vue'
 import { usePaperStore } from '@/stores/papers'
 import type {
@@ -66,11 +67,13 @@ const supplementDraft = ref('')
 const savedSupplementDraft = ref('')
 const supplementState = ref<SaveState>('loading')
 const noteMode = ref<NoteMode>('document')
+const noteDocumentEditing = ref(false)
 const noteItems = ref<NoteItemDocument | null>(null)
 const selectedNoteItemId = ref<string | null>(null)
 const selectedNoteItemIds = ref<string[]>([])
 const noteItemDraft = ref('')
 const savedNoteItemDraft = ref('')
+const noteItemEditing = ref(false)
 const questions = ref<QuestionsDocument | null>(null)
 const analysis = ref<PaperAnalysisDocument | null>(null)
 const loading = ref(true)
@@ -428,6 +431,7 @@ async function saveNote() {
     savedDraft.value = saved.markdown
     if (noteDraft.value === savedDraft.value) {
       noteState.value = 'saved'
+      noteDocumentEditing.value = false
       await reloadNoteItems().catch(() => {
         errorMessage.value = '笔记已保存，但条目视图刷新失败，请重新加载页面。'
       })
@@ -493,6 +497,7 @@ function selectNoteItem(item: NoteItemSource) {
   selectedNoteItemId.value = item.item_id
   noteItemDraft.value = item.markdown
   savedNoteItemDraft.value = item.markdown
+  noteItemEditing.value = false
 }
 
 function switchNoteMode(mode: NoteMode) {
@@ -506,12 +511,15 @@ function switchNoteMode(mode: NoteMode) {
     noteItemDraft.value = savedNoteItemDraft.value
   }
   noteMode.value = mode
+  if (mode !== 'document') noteDocumentEditing.value = false
+  if (mode !== 'items') noteItemEditing.value = false
 }
 
 function openFavoriteNoteItem(item: NoteItemSource) {
   selectedNoteItemId.value = item.item_id
   noteItemDraft.value = item.markdown
   savedNoteItemDraft.value = item.markdown
+  noteItemEditing.value = false
   noteMode.value = 'items'
 }
 
@@ -548,6 +556,7 @@ async function saveNoteItem() {
       .catch(() => false)
     if (refreshed) {
       successMessage.value = '条目正文和分析投影已同步保存。'
+      noteItemEditing.value = false
     } else {
       noteMode.value = 'document'
       errorMessage.value = '条目已保存，但条目视图刷新失败，请重新加载页面。'
@@ -1096,6 +1105,15 @@ onBeforeUnmount(() => {
           </button>
           <button
             v-if="noteMode === 'document'"
+            class="button button--secondary button--compact"
+            type="button"
+            :disabled="noteState === 'saving'"
+            @click="noteDocumentEditing = !noteDocumentEditing"
+          >
+            <Pencil :size="15" /> {{ noteDocumentEditing ? '返回阅读' : '编辑' }}
+          </button>
+          <button
+            v-if="noteMode === 'document' && noteDocumentEditing"
             class="button button--primary button--compact"
             type="button"
             :disabled="noteState === 'saving' || noteDraft === savedDraft"
@@ -1115,11 +1133,16 @@ onBeforeUnmount(() => {
         </div>
       </header>
       <textarea
-        v-if="noteMode === 'document'"
+        v-if="noteMode === 'document' && noteDocumentEditing"
         v-model="noteDraft"
         class="note-editor"
         aria-label="论文结构化笔记"
         spellcheck="false"
+      />
+      <MarkdownDocument
+        v-else-if="noteMode === 'document'"
+        class="note-document-view"
+        :markdown="noteDraft"
       />
       <div v-else-if="noteMode === 'items'" class="note-item-mode">
         <aside class="note-item-list">
@@ -1256,6 +1279,14 @@ onBeforeUnmount(() => {
                 >
                   <Trash2 :size="16" />
                 </button>
+                <button
+                  class="button button--secondary button--compact"
+                  type="button"
+                  :disabled="selectedNoteItem.sync_status !== 'synced'"
+                  @click="noteItemEditing = !noteItemEditing"
+                >
+                  <Pencil :size="14" /> {{ noteItemEditing ? '返回阅读' : '编辑' }}
+                </button>
               </div>
             </header>
             <div
@@ -1280,13 +1311,21 @@ onBeforeUnmount(() => {
               </button>
             </div>
             <textarea
+              v-if="noteItemEditing"
               v-model="noteItemDraft"
               class="note-editor note-item-editor"
               aria-label="结构化笔记条目正文"
               spellcheck="false"
               :disabled="selectedNoteItem.sync_status !== 'synced'"
             />
-            <footer>只更新此稳定锚点对应的 Markdown 片段；其他章节和段落不会重排。</footer>
+            <MarkdownDocument v-else class="note-item-document-view" :markdown="noteItemDraft" />
+            <footer>
+              {{
+                noteItemEditing
+                  ? '只更新此稳定锚点对应的 Markdown 片段；其他章节和段落不会重排。'
+                  : '这是该稳定锚点对应的格式化正文；点击编辑才会打开 Markdown 源码。'
+              }}
+            </footer>
           </template>
         </main>
       </div>
@@ -1304,15 +1343,21 @@ onBeforeUnmount(() => {
         </div>
         <div v-else class="note-favorites-grid">
           <article v-for="item in favoriteNoteItems" :key="item.item_id">
-            <button type="button" class="note-favorite-entry" @click="openFavoriteNoteItem(item)">
-              <span class="analysis-kind">{{ analysisKindLabel(item.kind) }}</span>
-              <strong>{{ item.title }}</strong>
-              <small>
-                {{ item.section_title || '未绑定章节' }}
-                <template v-if="item.section_order"> · 第 {{ item.section_order }} 条</template>
-              </small>
-              <p>{{ item.markdown || item.title }}</p>
-            </button>
+            <div class="note-favorite-content">
+              <button type="button" class="note-favorite-entry" @click="openFavoriteNoteItem(item)">
+                <span class="analysis-kind">{{ analysisKindLabel(item.kind) }}</span>
+                <strong>{{ item.title }}</strong>
+                <small>
+                  {{ item.section_title || '未绑定章节' }}
+                  <template v-if="item.section_order"> · 第 {{ item.section_order }} 条</template>
+                </small>
+              </button>
+              <MarkdownDocument
+                class="note-favorite-document"
+                compact
+                :markdown="item.markdown || item.title"
+              />
+            </div>
             <button
               class="icon-button note-item-favorite-toggle"
               type="button"
