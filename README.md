@@ -132,6 +132,7 @@ PDF 不会出现在该目录中；`papers/*.yaml` 只保存受允许路径约束
 - [测试与质量](docs/11-testing-quality.md)
 - [验收标准](docs/12-acceptance-criteria.md)
 - [跨论文分析核心](docs/17-analysis-core.md)
+- [结构化笔记条目模式](docs/18-note-item-mode.md)
 
 ## 贡献
 
