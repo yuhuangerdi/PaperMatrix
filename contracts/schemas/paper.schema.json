@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "paper_id", "project_id", "source", "bibliography", "organization", "structured_summary", "created_at", "updated_at", "revision"],
   "properties": {
-    "schema_version": {"const": 7},
+    "schema_version": {"const": 8},
     "paper_id": {"type": "string", "format": "uuid"},
     "project_id": {"type": "string", "format": "uuid"},
     "source": {
@@ -85,7 +85,7 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["item_id", "kind", "title", "summary", "section_key", "section_title", "section_order", "source_anchor", "source_note_revision", "source_fingerprint", "attributes", "evidence_refs", "tags", "writing_uses", "created_at", "updated_at"],
+            "required": ["item_id", "kind", "title", "summary", "section_key", "section_title", "section_order", "source_anchor", "source_note_revision", "source_fingerprint", "attributes", "evidence_refs", "tags", "writing_uses", "is_favorite", "created_at", "updated_at"],
             "properties": {
               "item_id": {"type": "string", "format": "uuid"},
               "kind": {
@@ -118,6 +118,7 @@
                 "items": {"type": "string", "enum": ["INTRO", "RELATED", "METHOD", "BASELINE", "DATASET", "METRIC", "LIMITATION", "DISCUSSION", "FUTURE"]},
                 "uniqueItems": true
               },
+              "is_favorite": {"type": "boolean"},
               "created_at": {"type": "string", "format": "date-time"},
               "updated_at": {"type": "string", "format": "date-time"}
             }

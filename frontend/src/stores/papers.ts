@@ -7,6 +7,7 @@ import type {
   InvalidPaperRecord,
   NoteItemDeleteResult,
   NoteItemDocument,
+  NoteItemFavoriteUpdateResult,
   NoteItemUpdateResult,
   NoteParsePreview,
   Paper,
@@ -188,6 +189,24 @@ export const usePaperStore = defineStore('papers', {
             expected_note_revision: expectedNoteRevision,
             expected_paper_revision: expectedPaperRevision,
             expected_source_fingerprint: expectedSourceFingerprint,
+          },
+        },
+      )
+    },
+    async updateNoteItemFavorite(
+      projectId: string,
+      paperId: string,
+      itemId: string,
+      isFavorite: boolean,
+      expectedPaperRevision: number,
+    ) {
+      return apiRequest<NoteItemFavoriteUpdateResult>(
+        `/projects/${projectId}/papers/${paperId}/note/items/${itemId}/favorite`,
+        {
+          method: 'PATCH',
+          body: {
+            is_favorite: isFavorite,
+            expected_paper_revision: expectedPaperRevision,
           },
         },
       )

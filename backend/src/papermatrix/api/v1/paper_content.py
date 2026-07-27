@@ -12,6 +12,7 @@ from papermatrix.domain.note_analysis import (
     CandidateImportResult,
     NoteItemDeleteResult,
     NoteItemDocument,
+    NoteItemFavoriteUpdateResult,
     NoteItemUpdateResult,
     NoteParsePreview,
 )
@@ -57,6 +58,11 @@ class NoteItemUpdate(BaseModel):
 class NoteItemDeleteRequest(BaseModel):
     item_ids: list[UUID] = Field(min_length=1)
     expected_note_revision: int = Field(ge=0)
+    expected_paper_revision: int = Field(ge=1)
+
+
+class NoteItemFavoriteUpdate(BaseModel):
+    is_favorite: bool
     expected_paper_revision: int = Field(ge=1)
 
 
@@ -158,6 +164,25 @@ def update_note_item(
     request: Request,
 ) -> NoteItemUpdateResult:
     return _service(request).update_note_item(
+        project_id,
+        paper_id,
+        item_id,
+        **payload.model_dump(),
+    )
+
+
+@router.patch(
+    "/projects/{project_id}/papers/{paper_id}/note/items/{item_id}/favorite",
+    response_model=NoteItemFavoriteUpdateResult,
+)
+def update_note_item_favorite(
+    project_id: UUID,
+    paper_id: UUID,
+    item_id: UUID,
+    payload: NoteItemFavoriteUpdate,
+    request: Request,
+) -> NoteItemFavoriteUpdateResult:
+    return _service(request).update_note_item_favorite(
         project_id,
         paper_id,
         item_id,

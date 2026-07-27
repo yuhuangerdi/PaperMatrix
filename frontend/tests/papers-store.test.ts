@@ -163,6 +163,35 @@ describe('paper store', () => {
     })
   })
 
+  it('updates a confirmed note item favorite with the current paper revision', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          analysis: {
+            paper_id: 'paper-id',
+            revision: 4,
+            updated_at: '2026-07-27T00:00:00Z',
+            items: [],
+          },
+          item: { item_id: 'item-id', is_favorite: true },
+        }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = usePaperStore()
+
+    await store.updateNoteItemFavorite('project-id', 'paper-id', 'item-id', true, 3)
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/note/items/item-id/favorite')
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit
+    expect(request.method).toBe('PATCH')
+    expect(JSON.parse(String(request.body))).toEqual({
+      is_favorite: true,
+      expected_paper_revision: 3,
+    })
+  })
+
   it('creates a question in the current document revision', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

@@ -105,6 +105,7 @@ class AnalysisItem(BaseModel):
     evidence_refs: list[EvidenceReference] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     writing_uses: list[WritingUse] = Field(default_factory=list)
+    is_favorite: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -147,7 +148,7 @@ class StructuredSummary(BaseModel):
 
 
 class Paper(BaseModel):
-    schema_version: Literal[7] = 7
+    schema_version: Literal[8] = 8
     paper_id: UUID
     project_id: UUID
     source: PaperSource

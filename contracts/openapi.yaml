@@ -524,6 +524,30 @@ paths:
               schema: { $ref: "#/components/schemas/NoteItemUpdateResult" }
         "409": { $ref: "#/components/responses/ErrorResponse" }
         "422": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/papers/{paper_id}/note/items/{item_id}/favorite:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+      - in: path
+        name: item_id
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updatePaperNoteItemFavorite
+      summary: 更新确认条目的重点收藏状态
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NoteItemFavoriteUpdate" }
+      responses:
+        "200":
+          description: Updated favorite state and analysis projection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NoteItemFavoriteUpdateResult" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+        "422": { $ref: "#/components/responses/ErrorResponse" }
   /projects/{project_id}/papers/{paper_id}/note/items/delete:
     parameters:
       - $ref: "#/components/parameters/ProjectId"
@@ -1014,7 +1038,7 @@ components:
           revision,
         ]
       properties:
-        schema_version: { type: integer, const: 7 }
+        schema_version: { type: integer, const: 8 }
         paper_id: { type: string, format: uuid }
         project_id: { type: string, format: uuid }
         source:
@@ -1200,6 +1224,7 @@ components:
           evidence_refs,
           tags,
           writing_uses,
+          is_favorite,
           created_at,
           updated_at,
         ]
@@ -1262,6 +1287,7 @@ components:
                 FUTURE,
               ]
           uniqueItems: true
+        is_favorite: { type: boolean }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     AnalysisItemInput:
@@ -1498,6 +1524,7 @@ components:
           markdown,
           source_fingerprint,
           sync_status,
+          is_favorite,
         ]
       properties:
         item_id: { type: string, format: uuid }
@@ -1513,6 +1540,7 @@ components:
         sync_status:
           type: string
           enum: [synced, review_required, missing]
+        is_favorite: { type: boolean }
     NoteItemDocument:
       type: object
       required:
@@ -1564,6 +1592,18 @@ components:
       required: [note, analysis, item]
       properties:
         note: { $ref: "#/components/schemas/PaperNote" }
+        analysis: { $ref: "#/components/schemas/PaperAnalysisDocument" }
+        item: { $ref: "#/components/schemas/AnalysisItem" }
+    NoteItemFavoriteUpdate:
+      type: object
+      required: [is_favorite, expected_paper_revision]
+      properties:
+        is_favorite: { type: boolean }
+        expected_paper_revision: { type: integer, minimum: 1 }
+    NoteItemFavoriteUpdateResult:
+      type: object
+      required: [analysis, item]
+      properties:
         analysis: { $ref: "#/components/schemas/PaperAnalysisDocument" }
         item: { $ref: "#/components/schemas/AnalysisItem" }
     NoteItemDeleteRequest:

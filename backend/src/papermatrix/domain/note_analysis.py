@@ -69,6 +69,7 @@ class NoteItemSource(BaseModel):
     markdown: str
     source_fingerprint: str | None
     sync_status: Literal["synced", "review_required", "missing"]
+    is_favorite: bool
 
 
 class NoteItemDocument(BaseModel):
@@ -84,6 +85,11 @@ class NoteItemDocument(BaseModel):
 
 class NoteItemUpdateResult(BaseModel):
     note: PaperNote
+    analysis: PaperAnalysisDocument
+    item: AnalysisItem
+
+
+class NoteItemFavoriteUpdateResult(BaseModel):
     analysis: PaperAnalysisDocument
     item: AnalysisItem
 

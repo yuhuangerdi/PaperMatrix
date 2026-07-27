@@ -248,6 +248,38 @@ def test_anchors_preserve_content_and_stabilize_heading_block_item_ids() -> None
     assert parse_note_candidates(PAPER_ID, table_changed, [])[1].candidate_id == table.candidate_id
 
 
+def test_markdown_reparse_keeps_the_same_identity_for_a_favorited_item() -> None:
+    markdown = """## 3. 本文解决思路和整体框架
+### 3.1 核心思路
+使用检查点恢复失败任务。
+"""
+    candidate = parse_note_candidates(PAPER_ID, markdown, [])[0]
+    item = AnalysisItem(
+        item_id=candidate.candidate_id,
+        kind=candidate.kind,
+        title=candidate.title,
+        summary=candidate.summary,
+        section_key=candidate.section_key,
+        section_title=candidate.section_title,
+        section_order=candidate.section_order,
+        source_anchor=candidate.source_anchor,
+        source_note_revision=1,
+        source_fingerprint=candidate.source_fingerprint,
+        attributes=candidate.attributes,
+        evidence_refs=[],
+        tags=[],
+        writing_uses=[],
+        is_favorite=True,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    reparsed = parse_note_candidates(PAPER_ID, add_item_anchors(markdown, [candidate]), [item])
+
+    assert reparsed[0].candidate_id == item.item_id
+    assert reparsed[0].sync_status == "unchanged"
+
+
 def test_parses_all_filled_semantic_blocks_and_keeps_each_table_together() -> None:
     markdown = """## 1. 背景：解决什么问题？为什么重要？
 ### 1.1 研究背景

@@ -79,7 +79,7 @@ export interface Paper extends Omit<
   PaperSummary,
   'source_status' | 'source_filename' | 'page_count'
 > {
-  schema_version: 7
+  schema_version: 8
   source: {
     path: string | null
     path_mode: 'absolute' | 'workspace_relative' | null
@@ -227,6 +227,7 @@ export interface AnalysisItem {
   evidence_refs: EvidenceReference[]
   tags: string[]
   writing_uses: WritingUse[]
+  is_favorite: boolean
   created_at: string
   updated_at: string
 }
@@ -306,6 +307,7 @@ export interface NoteItemSource {
   markdown: string
   source_fingerprint: string | null
   sync_status: 'synced' | 'review_required' | 'missing'
+  is_favorite: boolean
 }
 
 export interface NoteItemDocument {
@@ -321,6 +323,11 @@ export interface NoteItemDocument {
 
 export interface NoteItemUpdateResult {
   note: PaperNote
+  analysis: PaperAnalysisDocument
+  item: AnalysisItem
+}
+
+export interface NoteItemFavoriteUpdateResult {
   analysis: PaperAnalysisDocument
   item: AnalysisItem
 }

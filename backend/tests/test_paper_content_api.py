@@ -422,6 +422,69 @@ def test_analysis_item_crud_evidence_and_revision_conflict(tmp_path: Path) -> No
     assert deleted.json()["items"] == []
 
 
+def test_note_item_favorite_is_revision_safe_and_survives_markdown_synchronization(
+    tmp_path: Path,
+) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    note_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/note"
+    analysis_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/analysis"
+    markdown = """## 3. 本文解决思路和整体框架
+### 3.1 核心思路
+使用状态检查点恢复失败任务。
+"""
+    assert (
+        client.put(note_endpoint, json={"markdown": markdown, "expected_revision": 1}).status_code
+        == 200
+    )
+    preview = client.post(f"{analysis_endpoint}/parse-note").json()
+    item_id = preview["candidates"][0]["candidate_id"]
+    imported = client.post(
+        f"{analysis_endpoint}/import-candidates",
+        json={
+            "candidate_ids": [item_id],
+            "expected_note_revision": 2,
+            "expected_paper_revision": 1,
+        },
+    ).json()
+
+    favorite = client.patch(
+        f"{note_endpoint}/items/{item_id}/favorite",
+        json={"is_favorite": True, "expected_paper_revision": imported["analysis"]["revision"]},
+    )
+    assert favorite.status_code == 200
+    assert favorite.json()["item"]["is_favorite"] is True
+    assert favorite.json()["analysis"]["revision"] == 3
+    assert client.get(f"{note_endpoint}/items").json()["items"][0]["is_favorite"] is True
+
+    changed_markdown = imported["note"]["markdown"].replace(
+        "使用状态检查点恢复失败任务。",
+        "使用可验证检查点恢复失败任务。",
+    )
+    assert (
+        client.put(
+            note_endpoint,
+            json={"markdown": changed_markdown, "expected_revision": imported["note"]["revision"]},
+        ).status_code
+        == 200
+    )
+    synchronized = client.post(
+        f"{analysis_endpoint}/import-candidates",
+        json={
+            "candidate_ids": [item_id],
+            "expected_note_revision": 4,
+            "expected_paper_revision": 3,
+        },
+    )
+    assert synchronized.status_code == 200
+    assert synchronized.json()["synchronized_items"][0]["is_favorite"] is True
+
+    stale = client.patch(
+        f"{note_endpoint}/items/{item_id}/favorite",
+        json={"is_favorite": False, "expected_paper_revision": 3},
+    )
+    assert stale.status_code == 409
+
+
 def test_note_candidate_preview_confirm_duplicate_and_stale_protection(tmp_path: Path) -> None:
     client, workspace_root, project_id, paper_id = initialized_paper(tmp_path)
     note_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/note"

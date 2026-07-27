@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Save,
   ScanText,
+  Star,
   Trash2,
   X,
 } from 'lucide-vue-next'
@@ -41,7 +42,7 @@ import type {
 
 type DetailTab = 'overview' | 'note' | 'supplement' | 'questions' | 'analysis'
 type SaveState = 'loading' | 'saved' | 'dirty' | 'saving' | 'failed' | 'conflict'
-type NoteMode = 'document' | 'items'
+type NoteMode = 'document' | 'items' | 'favorites'
 type SupplementDraft = { markdown: string; revision: number }
 
 const route = useRoute()
@@ -126,6 +127,9 @@ const hasUnsavedNote = computed(
 )
 const selectedNoteItem = computed(
   () => noteItems.value?.items.find((item) => item.item_id === selectedNoteItemId.value) ?? null,
+)
+const favoriteNoteItems = computed(
+  () => noteItems.value?.items.filter((item) => item.is_favorite) ?? [],
 )
 const canSaveNoteItem = computed(
   () => noteItemDirty.value && selectedNoteItem.value?.sync_status === 'synced' && !busy.value,
@@ -390,15 +394,22 @@ function selectNoteItem(item: NoteItemSource) {
 
 function switchNoteMode(mode: NoteMode) {
   if (mode === noteMode.value) return
-  if (mode === 'items' && noteState.value !== 'saved') {
-    errorMessage.value = '请先保存完整文档，再进入条目模式。'
+  if (mode !== 'document' && noteState.value !== 'saved') {
+    errorMessage.value = '请先保存完整文档，再切换到条目模式或收藏。'
     return
   }
-  if (mode === 'document' && noteItemDirty.value) {
+  if (mode !== 'items' && noteItemDirty.value) {
     if (!window.confirm('放弃当前条目尚未保存的修改吗？')) return
     noteItemDraft.value = savedNoteItemDraft.value
   }
   noteMode.value = mode
+}
+
+function openFavoriteNoteItem(item: NoteItemSource) {
+  selectedNoteItemId.value = item.item_id
+  noteItemDraft.value = item.markdown
+  savedNoteItemDraft.value = item.markdown
+  noteMode.value = 'items'
 }
 
 async function saveNoteItem() {
@@ -441,6 +452,30 @@ async function saveNoteItem() {
   } catch (error: unknown) {
     errorMessage.value =
       error instanceof ApiError ? error.message : '条目保存失败，当前草稿仍保留。'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function updateNoteItemFavorite(item: NoteItemSource, isFavorite = !item.is_favorite) {
+  if (!noteItems.value) return
+  busy.value = true
+  errorMessage.value = ''
+  try {
+    const result = await paperStore.updateNoteItemFavorite(
+      projectId.value,
+      paperId.value,
+      item.item_id,
+      isFavorite,
+      noteItems.value.paper_revision,
+    )
+    analysis.value = result.analysis
+    syncPaperRevision(result.analysis)
+    await reloadNoteItems()
+    successMessage.value = isFavorite ? '已加入重点收藏。' : '已从重点收藏移除。'
+  } catch (error: unknown) {
+    errorMessage.value =
+      error instanceof ApiError ? error.message : '更新重点收藏失败，请刷新后重试。'
   } finally {
     busy.value = false
   }
@@ -857,7 +892,7 @@ onBeforeUnmount(() => {
         <span class="tab-count">{{ questions?.questions.length ?? 0 }}</span>
       </button>
       <button :class="{ active: activeTab === 'analysis' }" @click="activeTab = 'analysis'">
-        <ListTree :size="17" /> 分析条目
+        <ListTree :size="17" /> 分析投影
         <span class="tab-count">{{ analysis?.items.length ?? 0 }}</span>
       </button>
     </nav>
@@ -939,6 +974,13 @@ onBeforeUnmount(() => {
           >
             条目模式
           </button>
+          <button
+            type="button"
+            :class="{ active: noteMode === 'favorites' }"
+            @click="switchNoteMode('favorites')"
+          >
+            收藏
+          </button>
         </div>
         <div>
           <button
@@ -959,7 +1001,7 @@ onBeforeUnmount(() => {
             <Save :size="15" /> 保存
           </button>
           <button
-            v-else
+            v-else-if="noteMode === 'items'"
             class="button button--primary button--compact"
             type="button"
             :disabled="!canSaveNoteItem"
@@ -976,7 +1018,7 @@ onBeforeUnmount(() => {
         aria-label="论文结构化笔记"
         spellcheck="false"
       />
-      <div v-else class="note-item-mode">
+      <div v-else-if="noteMode === 'items'" class="note-item-mode">
         <aside class="note-item-list">
           <header>
             <div>
@@ -1043,6 +1085,16 @@ onBeforeUnmount(() => {
                 :aria-label="`选择 ${item.title}`"
                 :disabled="busy"
               />
+              <button
+                class="icon-button note-item-favorite-toggle"
+                type="button"
+                :aria-label="item.is_favorite ? `取消收藏 ${item.title}` : `收藏 ${item.title}`"
+                :title="item.is_favorite ? '取消重点收藏' : '加入重点收藏'"
+                :disabled="busy"
+                @click.stop="updateNoteItemFavorite(item)"
+              >
+                <Star :size="15" :fill="item.is_favorite ? 'currentColor' : 'none'" />
+              </button>
               <button type="button" class="note-item-list-entry" @click="selectNoteItem(item)">
                 <span>
                   <strong>{{ item.title }}</strong>
@@ -1078,6 +1130,20 @@ onBeforeUnmount(() => {
               </div>
               <div class="note-item-editor-actions">
                 <small>条目 ID {{ selectedNoteItem.item_id }}</small>
+                <button
+                  class="icon-button note-item-favorite-toggle"
+                  type="button"
+                  :aria-label="
+                    selectedNoteItem.is_favorite
+                      ? `取消收藏 ${selectedNoteItem.title}`
+                      : `收藏 ${selectedNoteItem.title}`
+                  "
+                  :title="selectedNoteItem.is_favorite ? '取消重点收藏' : '加入重点收藏'"
+                  :disabled="busy"
+                  @click="updateNoteItemFavorite(selectedNoteItem)"
+                >
+                  <Star :size="16" :fill="selectedNoteItem.is_favorite ? 'currentColor' : 'none'" />
+                </button>
                 <button
                   class="icon-button icon-button--danger"
                   type="button"
@@ -1121,6 +1187,42 @@ onBeforeUnmount(() => {
           </template>
         </main>
       </div>
+      <section v-else class="note-favorites-mode">
+        <header>
+          <div>
+            <strong>重点收藏</strong>
+            <small>{{ favoriteNoteItems.length }} 条已确认条目</small>
+          </div>
+        </header>
+        <div v-if="favoriteNoteItems.length === 0" class="note-favorite-empty">
+          <Star :size="24" />
+          <h2>还没有重点收藏</h2>
+          <p>在条目模式中点击星标，将需要反复查看的条目集中到这里。</p>
+        </div>
+        <div v-else class="note-favorites-grid">
+          <article v-for="item in favoriteNoteItems" :key="item.item_id">
+            <button type="button" class="note-favorite-entry" @click="openFavoriteNoteItem(item)">
+              <span class="analysis-kind">{{ analysisKindLabel(item.kind) }}</span>
+              <strong>{{ item.title }}</strong>
+              <small>
+                {{ item.section_title || '未绑定章节' }}
+                <template v-if="item.section_order"> · 第 {{ item.section_order }} 条</template>
+              </small>
+              <p>{{ item.markdown || item.title }}</p>
+            </button>
+            <button
+              class="icon-button note-item-favorite-toggle"
+              type="button"
+              :aria-label="`取消收藏 ${item.title}`"
+              title="取消重点收藏"
+              :disabled="busy"
+              @click="updateNoteItemFavorite(item, false)"
+            >
+              <Star :size="16" fill="currentColor" />
+            </button>
+          </article>
+        </div>
+      </section>
     </section>
 
     <section v-else-if="activeTab === 'supplement'" class="note-workspace">
@@ -1224,7 +1326,7 @@ onBeforeUnmount(() => {
     <section v-else class="analysis-workspace">
       <header class="questions-header">
         <div>
-          <h2>可比较的分析条目</h2>
+          <h2>可比较的分析投影</h2>
           <p>
             {{ analysis?.items.length ?? 0 }} 条记录，{{ analysisWithEvidence }} 条已有证据；
             无证据条目会明确标记。

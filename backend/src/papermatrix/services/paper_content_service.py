@@ -23,6 +23,7 @@ from papermatrix.domain.note_analysis import (
     NoteAnalysisRemoval,
     NoteItemDeleteResult,
     NoteItemDocument,
+    NoteItemFavoriteUpdateResult,
     NoteItemSource,
     NoteItemUpdateResult,
     NoteParsePreview,
@@ -233,6 +234,7 @@ class PaperContentService:
                         markdown="",
                         source_fingerprint=item.source_fingerprint,
                         sync_status="missing",
+                        is_favorite=item.is_favorite,
                     )
                 )
                 continue
@@ -251,6 +253,7 @@ class PaperContentService:
                         if item.source_fingerprint == candidate.source_fingerprint
                         else "review_required"
                     ),
+                    is_favorite=item.is_favorite,
                 )
             )
         pending = sum(candidate.sync_status != "unchanged" for candidate in candidates) + len(
@@ -368,6 +371,53 @@ class PaperContentService:
         return NoteItemUpdateResult(
             note=updated_note,
             analysis=self._analysis_document(updated_paper),
+            item=updated_item,
+        )
+
+    def update_note_item_favorite(
+        self,
+        project_id: UUID,
+        paper_id: UUID,
+        item_id: UUID,
+        *,
+        is_favorite: bool,
+        expected_paper_revision: int,
+    ) -> NoteItemFavoriteUpdateResult:
+        projects, papers, _ = self._repositories()
+        projects.load(project_id)
+        paper = papers.load(project_id, paper_id)
+        if paper.revision != expected_paper_revision:
+            raise AnalysisPreviewStaleError(
+                resource="paper",
+                expected=expected_paper_revision,
+                actual=paper.revision,
+            )
+        existing = next(
+            (item for item in paper.structured_summary.items if item.item_id == item_id),
+            None,
+        )
+        if existing is None:
+            raise AnalysisItemNotFoundError()
+        updated_item = existing.model_copy(
+            update={"is_favorite": is_favorite, "updated_at": datetime.now(UTC)}
+        )
+        updated = paper.model_copy(
+            update={
+                "structured_summary": paper.structured_summary.model_copy(
+                    update={
+                        "items": [
+                            updated_item if item.item_id == item_id else item
+                            for item in paper.structured_summary.items
+                        ]
+                    }
+                ),
+                "revision": paper.revision + 1,
+                "updated_at": datetime.now(UTC),
+            }
+        )
+        saved = papers.save(updated, expected_revision=expected_paper_revision)
+        return NoteItemFavoriteUpdateResult(
+            analysis=self._analysis_document(saved),
             item=updated_item,
         )
 
@@ -620,6 +670,7 @@ class PaperContentService:
             evidence_refs=evidence,
             tags=tags,
             writing_uses=writing_uses,
+            is_favorite=any(item.is_favorite for item in superseded_items),
             created_at=created_at,
             updated_at=now,
         )
