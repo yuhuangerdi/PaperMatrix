@@ -128,6 +128,25 @@ def test_ignores_unfilled_template_placeholders_and_marks_duplicates() -> None:
     assert reparsed[0].duplicate_item_id == item.item_id
 
 
+def test_keeps_prose_containing_markdown_urls_out_of_structured_attributes() -> None:
+    markdown = """## 1. 背景
+### 1.1 研究背景
+传统自动化工具难以替代专家的上下文理解。（[usenix.org](https://www.usenix.org/conference/usenixsecurity24/presentation/deng?utm_source=openai)）
+
+## 11. 关键引用、页码与证据
+| 条目 ID | 类型 | 观点或证据 | 印刷页码 | PDF 页序号 | 图/表 | 备注 |
+|---|---|---|---|---:|---|---|
+| E-001 | 背景 | 工具需要上下文理解 | 待核对 | 待回看 PDF | 待补充 | 待核对 |
+"""
+
+    candidate = parse_note_candidates(PAPER_ID, markdown, [])[0]
+
+    assert candidate.attributes == {}
+    assert candidate.summary.startswith("传统自动化工具难以替代专家")
+    assert candidate.evidence_refs[0].page_label is None
+    assert candidate.evidence_refs[0].pdf_page_index is None
+
+
 def test_uses_semantic_heading_blocks_as_balanced_item_boundaries() -> None:
     markdown = """## 2. 现有方案分类和经典文献
 ### 2.1 现有方法分类

@@ -16,6 +16,7 @@ _LIST_ITEM = re.compile(r"^\s*(?:[-*]\s*|\d+\.(?:\s+|$))(.*?)\s*$")
 _NUMBERING = re.compile(r"^\d+(?:\.\d+)*(?:[.、]\s*|\s+)?")
 _SECTION_NUMBER = re.compile(r"^(\d+)(?:[.、]\s*|\s+)")
 _ITEM_ANCHOR = re.compile(r"<!--\s*papermatrix:item:([0-9a-fA-F-]{36})\s*-->")
+_ATTRIBUTE_KEY = re.compile(r"^[^:\uff1a\n]{1,60}$")
 _PLACEHOLDER_VALUES = {
     "",
     "______",
@@ -208,15 +209,11 @@ def _block_candidate(
         value = match.group(1).strip() if match else line
         if not _meaningful(value):
             continue
-        if "\uff1a" in value:
-            key, content = value.split("\uff1a", 1)
+        attribute = _attribute(value)
+        if attribute is not None:
+            key, content = attribute
             if _meaningful(content):
-                attributes[key.strip()] = content.strip()
-            continue
-        if ":" in value:
-            key, content = value.split(":", 1)
-            if _meaningful(content):
-                attributes[key.strip()] = content.strip()
+                attributes[key] = content
             continue
         prose.append(value)
     attributes.update(nested_attributes)
@@ -349,11 +346,19 @@ def _parse_evidence(blocks: list[_Block], paper_id: UUID) -> list[tuple[str, Evi
         if not _meaningful(claim):
             continue
         try:
-            page_index = int(pdf_page) if pdf_page.strip() else None
+            page_index = int(pdf_page) if _meaningful(pdf_page) else None
         except ValueError:
             page_index = None
-        figure = figure_table if figure_table.lower().startswith(("fig", "图")) else None
-        table = figure_table if figure_table.lower().startswith(("table", "表")) else None
+        figure = (
+            figure_table
+            if _meaningful(figure_table) and figure_table.lower().startswith(("fig", "图"))
+            else None
+        )
+        table = (
+            figure_table
+            if _meaningful(figure_table) and figure_table.lower().startswith(("table", "表"))
+            else None
+        )
         evidence_id = uuid5(
             NAMESPACE_URL,
             f"papermatrix:evidence:{paper_id}:{source_id}:{claim}:{page}:{pdf_page}",
@@ -364,11 +369,11 @@ def _parse_evidence(blocks: list[_Block], paper_id: UUID) -> list[tuple[str, Evi
                 EvidenceReference(
                     evidence_id=evidence_id,
                     paper_id=paper_id,
-                    page_label=page or None,
+                    page_label=page if _meaningful(page) else None,
                     pdf_page_index=page_index,
                     figure=figure,
                     table=table,
-                    locator_note=note or claim,
+                    locator_note=note if _meaningful(note) else claim,
                     source_item_id=source_id or None,
                 ),
             )
@@ -461,6 +466,21 @@ def _meaningful(value: str) -> bool:
     if normalized.startswith(_PLACEHOLDER_PREFIXES):
         return False
     return bool(normalized.strip("_ -\uff1a:"))
+
+
+def _attribute(value: str) -> tuple[str, str] | None:
+    """Return a real short key/value field, never prose containing an URL."""
+    separator = "\uff1a" if "\uff1a" in value else ":" if ":" in value else None
+    if separator is None or value.startswith(("http://", "https://")):
+        return None
+    key, content = value.split(separator, 1)
+    key = key.strip()
+    content = content.strip()
+    if not _ATTRIBUTE_KEY.fullmatch(key) or any(
+        marker in key for marker in ("\u3002", "\uff01", "\uff1f", "(", ")", "[", "]")
+    ):
+        return None
+    return key, content
 
 
 def add_item_anchors(

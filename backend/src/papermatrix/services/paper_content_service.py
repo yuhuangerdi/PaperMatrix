@@ -641,7 +641,6 @@ class PaperContentService:
         tags = list(
             dict.fromkeys(
                 [
-                    "笔记解析",
                     *(tag for item in superseded_items for tag in item.tags),
                 ]
             )

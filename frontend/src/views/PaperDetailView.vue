@@ -154,7 +154,9 @@ const sourceLabel = computed(
     })[paper.value?.source.status ?? 'unlinked'],
 )
 const analysisWithEvidence = computed(
-  () => analysis.value?.items.filter((item) => item.evidence_refs.length > 0).length ?? 0,
+  () =>
+    analysis.value?.items.filter((item) => displayableEvidence(item.evidence_refs).length > 0)
+      .length ?? 0,
 )
 
 function emptyEvidence(): EvidenceReference {
@@ -183,6 +185,53 @@ function splitValues(value: string) {
 
 function questionStatusLabel(status: QuestionStatus) {
   return { open: '待回答', answered: '已回答', deferred: '暂缓' }[status]
+}
+
+function isPlaceholder(value: string | null) {
+  const normalized = value?.trim().toLocaleLowerCase('zh-CN') ?? ''
+  return (
+    !normalized ||
+    ['待补充', '待填写', '待查询', '待核对', '待回看 pdf'].includes(normalized) ||
+    ['待补充', '待填写', '待查询', '待核对', '待回看'].some((prefix) =>
+      normalized.startsWith(prefix),
+    )
+  )
+}
+
+function evidenceLabel(evidence: EvidenceReference) {
+  const parts: string[] = []
+  if (!isPlaceholder(evidence.page_label)) parts.push(`第 ${evidence.page_label?.trim()} 页`)
+  for (const value of [evidence.figure, evidence.table, evidence.section]) {
+    if (!isPlaceholder(value)) parts.push(value!.trim())
+  }
+  if (parts.length === 0 && !isPlaceholder(evidence.locator_note)) {
+    parts.push(evidence.locator_note.trim())
+  }
+  return parts.join(' · ')
+}
+
+function displayableEvidence(evidence: EvidenceReference[]) {
+  return evidence
+    .map((item) => ({ item, label: evidenceLabel(item) }))
+    .filter((entry) => entry.label.length > 0)
+}
+
+function displayAnalysisText(value: string) {
+  return value.replace(/\[([^\]]+)]\((?:https?:\/\/)[^)]+\)/g, '$1')
+}
+
+function displayableAttributes(attributes: Record<string, string>) {
+  return Object.entries(attributes).filter(
+    ([key]) =>
+      key.length <= 60 &&
+      !/[。！？!?()[\]]/.test(key) &&
+      !key.includes('http://') &&
+      !key.includes('https://'),
+  )
+}
+
+function visibleTags(tags: string[]) {
+  return tags.filter((tag) => tag !== '笔记解析')
 }
 
 function supplementDraftKey() {
@@ -1310,14 +1359,16 @@ onBeforeUnmount(() => {
           <p :class="{ 'question-empty-answer': !item.answer }">
             {{ item.answer || '暂未回答' }}
           </p>
-          <div v-if="item.evidence.length" class="evidence-list">
-            <span v-for="evidence in item.evidence" :key="evidence.evidence_id">
-              {{ evidence.page_label ? `第 ${evidence.page_label} 页` : '页码待补' }}
-              {{ evidence.figure || evidence.table || evidence.section || '' }}
+          <div v-if="displayableEvidence(item.evidence).length" class="evidence-list">
+            <span
+              v-for="{ item: evidence, label } in displayableEvidence(item.evidence)"
+              :key="evidence.evidence_id"
+            >
+              {{ label }}
             </span>
           </div>
-          <div class="tag-list">
-            <span v-for="tag in item.tags" :key="tag">{{ tag }}</span>
+          <div v-if="visibleTags(item.tags).length" class="tag-list">
+            <span v-for="tag in visibleTags(item.tags)" :key="tag">{{ tag }}</span>
           </div>
         </article>
       </div>
@@ -1363,9 +1414,15 @@ onBeforeUnmount(() => {
               <span class="analysis-kind">{{ analysisKindLabel(item.kind) }}</span>
               <span
                 class="evidence-state"
-                :class="{ 'evidence-state--missing': item.evidence_refs.length === 0 }"
+                :class="{
+                  'evidence-state--missing': displayableEvidence(item.evidence_refs).length === 0,
+                }"
               >
-                {{ item.evidence_refs.length ? `${item.evidence_refs.length} 条证据` : '待补证据' }}
+                {{
+                  displayableEvidence(item.evidence_refs).length
+                    ? `${displayableEvidence(item.evidence_refs).length} 条证据`
+                    : '待补证据'
+                }}
               </span>
             </div>
             <div class="table-actions">
@@ -1392,22 +1449,24 @@ onBeforeUnmount(() => {
             {{ item.section_title }} · 第 {{ item.section_order }} 条 · 笔记版本
             {{ item.source_note_revision }}
           </p>
-          <p>{{ item.summary || '尚未填写摘要。' }}</p>
-          <dl v-if="Object.keys(item.attributes).length" class="analysis-attributes">
-            <div v-for="(value, key) in item.attributes" :key="key">
+          <p>{{ displayAnalysisText(item.summary) || '尚未填写摘要。' }}</p>
+          <dl v-if="displayableAttributes(item.attributes).length" class="analysis-attributes">
+            <div v-for="[key, value] in displayableAttributes(item.attributes)" :key="key">
               <dt>{{ key }}</dt>
-              <dd>{{ value }}</dd>
+              <dd>{{ displayAnalysisText(value) }}</dd>
             </div>
           </dl>
-          <div v-if="item.evidence_refs.length" class="evidence-list">
-            <span v-for="evidence in item.evidence_refs" :key="evidence.evidence_id">
-              {{ evidence.page_label ? `第 ${evidence.page_label} 页` : '页码待补' }}
-              {{ evidence.figure || evidence.table || evidence.section || '' }}
+          <div v-if="displayableEvidence(item.evidence_refs).length" class="evidence-list">
+            <span
+              v-for="{ item: evidence, label } in displayableEvidence(item.evidence_refs)"
+              :key="evidence.evidence_id"
+            >
+              {{ label }}
             </span>
           </div>
-          <div class="tag-list">
+          <div v-if="item.writing_uses.length || visibleTags(item.tags).length" class="tag-list">
             <span v-for="use in item.writing_uses" :key="use">{{ use }}</span>
-            <span v-for="tag in item.tags" :key="tag">{{ tag }}</span>
+            <span v-for="tag in visibleTags(item.tags)" :key="tag">{{ tag }}</span>
           </div>
         </article>
       </div>

@@ -209,7 +209,7 @@ def test_confirming_grouped_table_candidate_consolidates_legacy_row_items(
     assert len(result["analysis"]["items"]) == 1
     grouped = result["analysis"]["items"][0]
     assert grouped["title"] == "现有方法分类"
-    assert grouped["tags"] == ["笔记解析", "经典方法", "动态规划"]
+    assert grouped["tags"] == ["经典方法", "动态规划"]
     assert grouped["writing_uses"] == ["RELATED", "METHOD"]
     assert grouped["evidence_refs"][0]["table"] == "Table 1"
     assert result["note"]["markdown"].count("papermatrix:item:") == 1
