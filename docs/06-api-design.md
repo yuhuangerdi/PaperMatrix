@@ -136,6 +136,8 @@
 - 问题归纳板、领域问题及论文贡献 CRUD；
 - 以领域问题为行、每篇论文含“方法/解决程度”两个子列的归纳矩阵查询。
 
+`ItemReference`、`ItemLink` 和 `ItemLinksDocument` 已作为 `ILINK-001` 的共享数据契约进入 OpenAPI components；在 `ILINK-002` 完成服务层引用校验和 CRUD 前，不声明可调用的条目关系路径。
+
 问题归纳写接口必须分别接收方法条目和解决程度/理由，不得把自由显示文本当成唯一来源；所有目标 paper/item ID 必须限定在当前项目内。
 
 目标资源：

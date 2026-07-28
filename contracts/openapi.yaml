@@ -1277,6 +1277,51 @@ components:
         questions:
           type: array
           items: { $ref: "#/components/schemas/ReadingQuestion" }
+    ItemReference:
+      type: object
+      additionalProperties: false
+      required: [paper_id, item_id]
+      properties:
+        paper_id: { type: string, format: uuid }
+        item_id: { type: string, format: uuid }
+    ItemLink:
+      type: object
+      additionalProperties: false
+      required:
+        [link_id, source, target, type, description, created_at, updated_at]
+      properties:
+        link_id: { type: string, format: uuid }
+        source: { $ref: "#/components/schemas/ItemReference" }
+        target: { $ref: "#/components/schemas/ItemReference" }
+        type:
+          type: string
+          enum:
+            [
+              addresses,
+              partially_addresses,
+              depends_on,
+              enables,
+              evaluates,
+              supports,
+              contradicts,
+              extends,
+              related_to,
+            ]
+        description: { type: string, maxLength: 5000 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ItemLinksDocument:
+      type: object
+      additionalProperties: false
+      required: [schema_version, project_id, revision, updated_at, links]
+      properties:
+        schema_version: { type: integer, const: 1 }
+        project_id: { type: string, format: uuid }
+        revision: { type: integer, minimum: 0 }
+        updated_at: { type: string, format: date-time }
+        links:
+          type: array
+          items: { $ref: "#/components/schemas/ItemLink" }
     AnalysisItem:
       type: object
       required:

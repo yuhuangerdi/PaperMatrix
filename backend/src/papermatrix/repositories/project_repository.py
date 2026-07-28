@@ -26,7 +26,14 @@ class ProjectRepository:
         project_dir = self._project_dir(project.project_id)
         project_dir.mkdir(parents=True, exist_ok=False)
         try:
-            for relative in ("papers", "notes", "questions", "artifacts", "exports"):
+            for relative in (
+                "papers",
+                "notes",
+                "questions",
+                "analyses",
+                "artifacts",
+                "exports",
+            ):
                 (project_dir / relative).mkdir()
             atomic_write_yaml(
                 self._project_file(project.project_id),
@@ -83,6 +90,7 @@ class ProjectRepository:
             project_dir / "papers",
             project_dir / "notes",
             project_dir / "questions",
+            project_dir / "analyses",
             project_dir / "artifacts",
             project_dir / "exports",
         }
@@ -129,7 +137,7 @@ class ProjectRepository:
 
     @staticmethod
     def _remove_directory_if_empty(project_dir: Path) -> None:
-        for name in ("papers", "notes", "questions", "artifacts", "exports"):
+        for name in ("papers", "notes", "questions", "analyses", "artifacts", "exports"):
             directory = project_dir / name
             if directory.exists():
                 directory.rmdir()

@@ -208,6 +208,8 @@ Markdown 正文遵循 `templates/paper-note-template.md`。保存时不应重排
 
 关系类型为 `addresses`、`partially_addresses`、`depends_on`、`enables`、`evaluates`、`supports`、`contradicts`、`extends`、`related_to`。删除被引用条目时保留悬空引用并标记缺失，不能静默删除跨论文判断。
 
+运行时 schema v1 同时保存文档级 `updated_at`。文件尚未创建时仓储返回 revision 0 的空文档且不产生磁盘写入；首次保存从 revision 0 写为 revision 1。持久化文件要求 revision 至少为 1，并通过项目目录身份校验、JSON Schema、文件锁和原子替换。关系端点不得是同一个条目，`link_id` 在文档内必须唯一。引用目标存在性由后续关系服务在新建或修改时校验；读取时保留已存在文件中的悬空引用供诊断，不因论文或条目删除而改写文件。
+
 ## 7B. problem-syntheses.yaml（阶段 4B）
 
 保存：

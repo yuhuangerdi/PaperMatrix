@@ -392,6 +392,40 @@ export interface NoteItemDeleteResult {
   deleted_item_ids: string[]
 }
 
+export type ItemLinkType =
+  | 'addresses'
+  | 'partially_addresses'
+  | 'depends_on'
+  | 'enables'
+  | 'evaluates'
+  | 'supports'
+  | 'contradicts'
+  | 'extends'
+  | 'related_to'
+
+export interface ItemReference {
+  paper_id: string
+  item_id: string
+}
+
+export interface ItemLink {
+  link_id: string
+  source: ItemReference
+  target: ItemReference
+  type: ItemLinkType
+  description: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ItemLinksDocument {
+  schema_version: 1
+  project_id: string
+  revision: number
+  updated_at: string
+  links: ItemLink[]
+}
+
 export interface ScanCandidate {
   candidate_id: string
   display_path: string

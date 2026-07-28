@@ -41,6 +41,7 @@ def test_project_crud_and_statistics(tmp_path):
     project_dir = workspace_root / "projects" / project_id
     assert (project_dir / "project.yaml").is_file()
     assert (project_dir / "papers").is_dir()
+    assert (project_dir / "analyses").is_dir()
     assert project["tags"] == ["agent", "security"]
 
     listed = client.get("/api/v1/projects")

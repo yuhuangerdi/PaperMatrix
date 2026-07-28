@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://papermatrix.local/schemas/item-links.schema.json",
+  "title": "PaperMatrix Structured Item Links",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project_id", "revision", "updated_at", "links"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "project_id": {"type": "string", "format": "uuid"},
+    "revision": {"type": "integer", "minimum": 1},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["link_id", "source", "target", "type", "description", "created_at", "updated_at"],
+        "properties": {
+          "link_id": {"type": "string", "format": "uuid"},
+          "source": {"$ref": "#/$defs/itemReference"},
+          "target": {"$ref": "#/$defs/itemReference"},
+          "type": {
+            "type": "string",
+            "enum": [
+              "addresses",
+              "partially_addresses",
+              "depends_on",
+              "enables",
+              "evaluates",
+              "supports",
+              "contradicts",
+              "extends",
+              "related_to"
+            ]
+          },
+          "description": {"type": "string", "maxLength": 5000},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "itemReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paper_id", "item_id"],
+      "properties": {
+        "paper_id": {"type": "string", "format": "uuid"},
+        "item_id": {"type": "string", "format": "uuid"}
+      }
+    }
+  }
+}
