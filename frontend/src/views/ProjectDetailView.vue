@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { Archive, ArrowLeft, FileText, Network, Pencil, RotateCcw, Trash2 } from 'lucide-vue-next'
+import {
+  Archive,
+  ArrowLeft,
+  FileText,
+  ListTree,
+  Network,
+  Pencil,
+  RotateCcw,
+  Trash2,
+} from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
@@ -126,6 +135,18 @@ onMounted(() => {
       </div>
       <RouterLink class="button button--primary" :to="`/projects/${projectId}/papers`">
         打开论文矩阵
+      </RouterLink>
+    </section>
+
+    <section class="paper-entry-band">
+      <div class="empty-icon"><ListTree :size="26" /></div>
+      <div>
+        <p class="eyebrow">分析工作台</p>
+        <h2>归纳领域问题与论文贡献</h2>
+        <p>建立多个问题归纳板，把每篇论文的方法和解决程度分列比较并回到来源条目。</p>
+      </div>
+      <RouterLink class="button button--primary" :to="`/projects/${projectId}/analysis`">
+        打开分析工作台
       </RouterLink>
     </section>
 

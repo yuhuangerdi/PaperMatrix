@@ -494,6 +494,111 @@ export interface AnalysisScopesViewDocument {
   scopes: AnalysisScopeView[]
 }
 
+export type ResolutionLevel =
+  | 'resolved'
+  | 'partially_resolved'
+  | 'indirectly_mitigated'
+  | 'not_resolved'
+  | 'not_addressed'
+  | 'not_applicable'
+  | 'unknown'
+
+export interface ProblemBoard {
+  board_id: string
+  name: string
+  purpose: string
+  scope_id: string
+  problem_ids: string[]
+  paper_ids: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface FieldProblem {
+  problem_id: string
+  name: string
+  definition: string
+  scope_note: string
+  aliases: string[]
+  tags: string[]
+  status: 'active' | 'archived'
+  source_problem_refs: ItemReference[]
+  created_at: string
+  updated_at: string
+}
+
+export interface PaperContribution {
+  contribution_id: string
+  problem_id: string
+  paper_id: string
+  research_problem_item_id: string
+  method_item_id: string | null
+  experiment_item_id: string | null
+  resolution_level: ResolutionLevel
+  rationale: string
+  supporting_evidence_ids: string[]
+  counter_evidence: string
+  conditions: string
+  user_judgment: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ProblemSynthesesDocument {
+  schema_version: 1
+  project_id: string
+  revision: number
+  updated_at: string
+  boards: ProblemBoard[]
+  field_problems: FieldProblem[]
+  paper_contributions: PaperContribution[]
+}
+
+export interface ProblemItemView {
+  paper_id: string
+  item_id: string
+  status: ItemReferenceStatus
+  paper_title: string | null
+  item_title: string | null
+}
+
+export interface ProblemBoardView {
+  board: ProblemBoard
+  scope_status: 'available' | 'missing'
+  missing_problem_ids: string[]
+  missing_paper_ids: string[]
+}
+
+export interface FieldProblemView {
+  problem: FieldProblem
+  source_items: ProblemItemView[]
+}
+
+export interface ProblemSynthesesViewDocument {
+  document: ProblemSynthesesDocument
+  boards: ProblemBoardView[]
+  field_problems: FieldProblemView[]
+  dangling_reference_count: number
+}
+
+export interface ProblemMatrixCell {
+  paper_id: string
+  contribution: PaperContribution | null
+  research_problem: ProblemItemView | null
+  method: ProblemItemView | null
+  experiment: ProblemItemView | null
+  missing_evidence_ids: string[]
+}
+
+export interface ProblemSynthesisMatrix {
+  project_id: string
+  source_revision: number
+  board: ProblemBoard
+  papers: Array<{ paper_id: string; title: string }>
+  rows: Array<{ problem: FieldProblem; cells: ProblemMatrixCell[] }>
+  warnings: string[]
+}
+
 export interface AnalysisReadiness {
   method_ready: boolean
   experiment_ready: boolean

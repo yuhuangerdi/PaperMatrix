@@ -38,6 +38,7 @@ const navItems = computed(() => [
       'project-new',
       'project-detail',
       'project-edit',
+      'project-analysis',
       'project-item-links',
     ],
   },

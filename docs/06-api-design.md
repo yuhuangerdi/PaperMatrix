@@ -142,6 +142,16 @@
 
 问题归纳写接口必须分别接收方法条目和解决程度/理由，不得把自由显示文本当成唯一来源；所有目标 paper/item ID 必须限定在当前项目内。
 
+领域问题归纳首个垂直切片已实现：
+
+- `GET /projects/{project_id}/problem-syntheses` 返回权威文档、归纳板/领域问题视图和悬空引用计数；
+- `POST/PATCH/DELETE /projects/{project_id}/problem-boards` 维护绑定分析集合的问题与论文显示顺序；
+- `POST/PATCH/DELETE /projects/{project_id}/field-problems` 维护领域问题及经确认的 `research_problem` 来源映射；
+- `POST/PATCH/DELETE /projects/{project_id}/paper-contributions` 维护问题、方法、实验、七态解决程度、理由、证据、反证和条件；
+- `GET /projects/{project_id}/matrices/problems?board_id=...` 请求时派生每篇论文含“方法/解决程度”两个子列的矩阵，不单独落盘。
+
+写入时验证归纳板论文属于绑定分析集合，研究问题/方法/实验条目类型符合字段语义，证据属于同一论文；方法存在不会自动生成解决程度。
+
 目标资源：
 
 - `GET/POST /projects/{project_id}/analysis-scopes`

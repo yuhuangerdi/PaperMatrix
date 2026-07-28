@@ -19,6 +19,7 @@ from papermatrix.api.v1.item_links import router as item_links_router
 from papermatrix.api.v1.matrices import router as matrices_router
 from papermatrix.api.v1.paper_content import router as paper_content_router
 from papermatrix.api.v1.papers import router as papers_router
+from papermatrix.api.v1.problem_syntheses import router as problem_syntheses_router
 from papermatrix.api.v1.projects import router as projects_router
 from papermatrix.api.v1.workspace import router as workspace_router
 from papermatrix.core.config import Settings
@@ -31,6 +32,7 @@ from papermatrix.services.item_link_service import ItemLinkService
 from papermatrix.services.literature_matrix_service import LiteratureMatrixService
 from papermatrix.services.paper_content_service import PaperContentService
 from papermatrix.services.paper_service import PaperService
+from papermatrix.services.problem_synthesis_service import ProblemSynthesisService
 from papermatrix.services.project_service import ProjectService
 from papermatrix.services.workspace_service import WorkspaceService
 
@@ -69,6 +71,7 @@ def create_app(
     app.state.analysis_scope_service = AnalysisScopeService(workspace_service, schemas)
     app.state.item_link_service = ItemLinkService(workspace_service, schemas)
     app.state.literature_matrix_service = LiteratureMatrixService(workspace_service, schemas)
+    app.state.problem_synthesis_service = ProblemSynthesisService(workspace_service, schemas)
     app.state.paper_content_service = PaperContentService(
         workspace_service,
         schemas,
@@ -116,6 +119,7 @@ def create_app(
     app.include_router(analysis_scopes_router, prefix="/api/v1")
     app.include_router(item_links_router, prefix="/api/v1")
     app.include_router(matrices_router, prefix="/api/v1")
+    app.include_router(problem_syntheses_router, prefix="/api/v1")
     app.include_router(papers_router, prefix="/api/v1")
     app.include_router(paper_content_router, prefix="/api/v1")
     return app

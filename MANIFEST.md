@@ -26,7 +26,7 @@
 ## contracts
 
 - `openapi.yaml`：API 初始契约；
-- `schemas/`：工作区、项目、论文、问题、关系和研究空白 JSON Schema。
+- `schemas/`：工作区、项目、论文、问题、条目关系、问题归纳和研究空白 JSON Schema。
 
 ## templates
 

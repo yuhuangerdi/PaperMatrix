@@ -179,6 +179,38 @@ class AnalysisScopePaperError(PaperMatrixError):
         )
 
 
+class ProblemSynthesisNotFoundError(PaperMatrixError):
+    def __init__(self, resource: str) -> None:
+        super().__init__(
+            "PM-PROBLEM-001",
+            "问题归纳对象不存在。",
+            status_code=404,
+            action="请刷新问题归纳板后重试。",
+            details={"resource": resource},
+        )
+
+
+class ProblemSynthesisReferenceError(PaperMatrixError):
+    def __init__(self, field: str, reason: str) -> None:
+        super().__init__(
+            "PM-PROBLEM-002",
+            "问题归纳包含无效的项目内引用。",
+            status_code=422,
+            action="请选择当前项目和分析集合中仍然存在的对象。",
+            details={"field": field, "reason": reason},
+        )
+
+
+class ProblemContributionConflictError(PaperMatrixError):
+    def __init__(self) -> None:
+        super().__init__(
+            "PM-PROBLEM-003",
+            "该领域问题与论文已经有一条贡献记录。",
+            status_code=409,
+            action="请编辑现有贡献记录。",
+        )
+
+
 class ProjectNotFoundError(PaperMatrixError):
     def __init__(self) -> None:
         super().__init__(

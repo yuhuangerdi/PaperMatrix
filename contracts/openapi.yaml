@@ -1026,6 +1026,192 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/LiteratureMatrix" }
         "404": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/problem-syntheses:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      operationId: getProblemSyntheses
+      summary: 获取问题归纳权威对象及悬空引用诊断
+      responses:
+        "200":
+          description: Problem synthesis view
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemSynthesesViewDocument" }
+  /projects/{project_id}/problem-boards:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    post:
+      operationId: createProblemBoard
+      summary: 创建绑定分析集合的问题归纳板
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProblemBoardInput" }
+      responses:
+        "201":
+          description: Created problem board
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemSynthesesViewDocument" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+        "422": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/problem-boards/{board_id}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - in: path
+        name: board_id
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updateProblemBoard
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProblemBoardUpdate" }
+      responses:
+        "200":
+          description: Updated problem board
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemSynthesesViewDocument" }
+    delete:
+      operationId: deleteProblemBoard
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExpectedRevision" }
+      responses:
+        "200":
+          description: Remaining problem syntheses
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemSynthesesViewDocument" }
+  /projects/{project_id}/field-problems:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    post:
+      operationId: createFieldProblem
+      summary: 创建用户归一化定义的领域问题
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FieldProblemInput" }
+      responses:
+        "201":
+          description: Created field problem
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemSynthesesViewDocument" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+        "422": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/field-problems/{problem_id}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - in: path
+        name: problem_id
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updateFieldProblem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FieldProblemUpdate" }
+      responses:
+        "200":
+          description: Updated field problem
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemSynthesesViewDocument" }
+    delete:
+      operationId: deleteFieldProblem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExpectedRevision" }
+      responses:
+        "200":
+          description: Remaining problem syntheses
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemSynthesesViewDocument" }
+        "422": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/paper-contributions:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    post:
+      operationId: createPaperContribution
+      summary: 保存用户判断的领域问题论文贡献
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaperContributionInput" }
+      responses:
+        "201":
+          description: Created paper contribution
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemSynthesesViewDocument" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+        "422": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/paper-contributions/{contribution_id}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - in: path
+        name: contribution_id
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updatePaperContribution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaperContributionUpdate" }
+      responses:
+        "200":
+          description: Updated paper contribution
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemSynthesesViewDocument" }
+    delete:
+      operationId: deletePaperContribution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExpectedRevision" }
+      responses:
+        "200":
+          description: Remaining problem syntheses
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemSynthesesViewDocument" }
+  /projects/{project_id}/matrices/problems:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - in: query
+        name: board_id
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: getProblemMatrix
+      summary: 派生领域问题与论文的方法/解决程度双列矩阵
+      responses:
+        "200":
+          description: Problem synthesis matrix
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemSynthesisMatrix" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
   /projects/{project_id}/research-gaps:
     parameters:
       - $ref: "#/components/parameters/ProjectId"
@@ -1685,6 +1871,349 @@ components:
         - type: object
           properties:
             expected_revision: { type: integer, minimum: 1 }
+    ExpectedRevision:
+      type: object
+      required: [expected_revision]
+      properties:
+        expected_revision: { type: integer, minimum: 1 }
+    ResolutionLevel:
+      type: string
+      enum:
+        [
+          resolved,
+          partially_resolved,
+          indirectly_mitigated,
+          not_resolved,
+          not_addressed,
+          not_applicable,
+          unknown,
+        ]
+    ProblemBoard:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          board_id,
+          name,
+          purpose,
+          scope_id,
+          problem_ids,
+          paper_ids,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        board_id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        purpose: { type: string, maxLength: 5000 }
+        scope_id: { type: string, format: uuid }
+        problem_ids:
+          type: array
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        paper_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ProblemBoardInput:
+      type: object
+      required:
+        [name, purpose, scope_id, problem_ids, paper_ids, expected_revision]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        purpose: { type: string, maxLength: 5000 }
+        scope_id: { type: string, format: uuid }
+        problem_ids:
+          type: array
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        paper_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        expected_revision: { type: integer, minimum: 0 }
+    ProblemBoardUpdate:
+      allOf:
+        - $ref: "#/components/schemas/ProblemBoardInput"
+        - type: object
+          properties:
+            expected_revision: { type: integer, minimum: 1 }
+    FieldProblem:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          problem_id,
+          name,
+          definition,
+          scope_note,
+          aliases,
+          tags,
+          status,
+          source_problem_refs,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        problem_id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 300 }
+        definition: { type: string, minLength: 1, maxLength: 20000 }
+        scope_note: { type: string, maxLength: 10000 }
+        aliases:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        tags:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        status: { type: string, enum: [active, archived] }
+        source_problem_refs:
+          type: array
+          uniqueItems: true
+          items: { $ref: "#/components/schemas/ItemReference" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    FieldProblemInput:
+      type: object
+      required:
+        [
+          name,
+          definition,
+          scope_note,
+          aliases,
+          tags,
+          status,
+          source_problem_refs,
+          expected_revision,
+        ]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 300 }
+        definition: { type: string, minLength: 1, maxLength: 20000 }
+        scope_note: { type: string, maxLength: 10000 }
+        aliases: { type: array, items: { type: string } }
+        tags: { type: array, items: { type: string } }
+        status: { type: string, enum: [active, archived] }
+        source_problem_refs:
+          type: array
+          items: { $ref: "#/components/schemas/ItemReference" }
+        expected_revision: { type: integer, minimum: 0 }
+    FieldProblemUpdate:
+      allOf:
+        - $ref: "#/components/schemas/FieldProblemInput"
+        - type: object
+          properties:
+            expected_revision: { type: integer, minimum: 1 }
+    PaperContribution:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          contribution_id,
+          problem_id,
+          paper_id,
+          research_problem_item_id,
+          method_item_id,
+          experiment_item_id,
+          resolution_level,
+          rationale,
+          supporting_evidence_ids,
+          counter_evidence,
+          conditions,
+          user_judgment,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        contribution_id: { type: string, format: uuid }
+        problem_id: { type: string, format: uuid }
+        paper_id: { type: string, format: uuid }
+        research_problem_item_id: { type: string, format: uuid }
+        method_item_id: { type: [string, "null"], format: uuid }
+        experiment_item_id: { type: [string, "null"], format: uuid }
+        resolution_level: { $ref: "#/components/schemas/ResolutionLevel" }
+        rationale: { type: string, maxLength: 20000 }
+        supporting_evidence_ids:
+          type: array
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        counter_evidence: { type: string, maxLength: 20000 }
+        conditions: { type: string, maxLength: 20000 }
+        user_judgment: { type: string, maxLength: 20000 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    PaperContributionInput:
+      type: object
+      required:
+        [
+          problem_id,
+          paper_id,
+          research_problem_item_id,
+          method_item_id,
+          experiment_item_id,
+          resolution_level,
+          rationale,
+          supporting_evidence_ids,
+          counter_evidence,
+          conditions,
+          user_judgment,
+          expected_revision,
+        ]
+      properties:
+        problem_id: { type: string, format: uuid }
+        paper_id: { type: string, format: uuid }
+        research_problem_item_id: { type: string, format: uuid }
+        method_item_id: { type: [string, "null"], format: uuid }
+        experiment_item_id: { type: [string, "null"], format: uuid }
+        resolution_level: { $ref: "#/components/schemas/ResolutionLevel" }
+        rationale: { type: string, maxLength: 20000 }
+        supporting_evidence_ids:
+          type: array
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        counter_evidence: { type: string, maxLength: 20000 }
+        conditions: { type: string, maxLength: 20000 }
+        user_judgment: { type: string, maxLength: 20000 }
+        expected_revision: { type: integer, minimum: 0 }
+    PaperContributionUpdate:
+      allOf:
+        - $ref: "#/components/schemas/PaperContributionInput"
+        - type: object
+          properties:
+            expected_revision: { type: integer, minimum: 1 }
+    ProblemSynthesesDocument:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          schema_version,
+          project_id,
+          revision,
+          updated_at,
+          boards,
+          field_problems,
+          paper_contributions,
+        ]
+      properties:
+        schema_version: { type: integer, const: 1 }
+        project_id: { type: string, format: uuid }
+        revision: { type: integer, minimum: 0 }
+        updated_at: { type: string, format: date-time }
+        boards:
+          type: array
+          items: { $ref: "#/components/schemas/ProblemBoard" }
+        field_problems:
+          type: array
+          items: { $ref: "#/components/schemas/FieldProblem" }
+        paper_contributions:
+          type: array
+          items: { $ref: "#/components/schemas/PaperContribution" }
+    ProblemItemView:
+      type: object
+      required: [paper_id, item_id, status, paper_title, item_title]
+      properties:
+        paper_id: { type: string, format: uuid }
+        item_id: { type: string, format: uuid }
+        status: { type: string, enum: [available, missing_paper, missing_item] }
+        paper_title: { type: [string, "null"] }
+        item_title: { type: [string, "null"] }
+    ProblemBoardView:
+      type: object
+      required: [board, scope_status, missing_problem_ids, missing_paper_ids]
+      properties:
+        board: { $ref: "#/components/schemas/ProblemBoard" }
+        scope_status: { type: string, enum: [available, missing] }
+        missing_problem_ids:
+          type: array
+          items: { type: string, format: uuid }
+        missing_paper_ids:
+          type: array
+          items: { type: string, format: uuid }
+    FieldProblemView:
+      type: object
+      required: [problem, source_items]
+      properties:
+        problem: { $ref: "#/components/schemas/FieldProblem" }
+        source_items:
+          type: array
+          items: { $ref: "#/components/schemas/ProblemItemView" }
+    ProblemSynthesesViewDocument:
+      type: object
+      required: [document, boards, field_problems, dangling_reference_count]
+      properties:
+        document: { $ref: "#/components/schemas/ProblemSynthesesDocument" }
+        boards:
+          type: array
+          items: { $ref: "#/components/schemas/ProblemBoardView" }
+        field_problems:
+          type: array
+          items: { $ref: "#/components/schemas/FieldProblemView" }
+        dangling_reference_count: { type: integer, minimum: 0 }
+    ProblemMatrixCell:
+      type: object
+      required:
+        [
+          paper_id,
+          contribution,
+          research_problem,
+          method,
+          experiment,
+          missing_evidence_ids,
+        ]
+      properties:
+        paper_id: { type: string, format: uuid }
+        contribution:
+          oneOf:
+            - $ref: "#/components/schemas/PaperContribution"
+            - type: "null"
+        research_problem:
+          oneOf:
+            - $ref: "#/components/schemas/ProblemItemView"
+            - type: "null"
+        method:
+          oneOf:
+            - $ref: "#/components/schemas/ProblemItemView"
+            - type: "null"
+        experiment:
+          oneOf:
+            - $ref: "#/components/schemas/ProblemItemView"
+            - type: "null"
+        missing_evidence_ids:
+          type: array
+          items: { type: string, format: uuid }
+    ProblemSynthesisMatrix:
+      type: object
+      required:
+        [project_id, source_revision, board, papers, rows, warnings]
+      properties:
+        project_id: { type: string, format: uuid }
+        source_revision: { type: integer, minimum: 0 }
+        board: { $ref: "#/components/schemas/ProblemBoard" }
+        papers:
+          type: array
+          items:
+            type: object
+            required: [paper_id, title]
+            properties:
+              paper_id: { type: string, format: uuid }
+              title: { type: string }
+        rows:
+          type: array
+          items:
+            type: object
+            required: [problem, cells]
+            properties:
+              problem: { $ref: "#/components/schemas/FieldProblem" }
+              cells:
+                type: array
+                items: { $ref: "#/components/schemas/ProblemMatrixCell" }
+        warnings:
+          type: array
+          items: { type: string }
     AnalysisReadiness:
       type: object
       required:

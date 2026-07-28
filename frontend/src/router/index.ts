@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import DiagnosticsView from '@/views/DiagnosticsView.vue'
+import AnalysisWorkspaceView from '@/views/AnalysisWorkspaceView.vue'
 import HomeView from '@/views/HomeView.vue'
 import ItemLinksView from '@/views/ItemLinksView.vue'
 import PapersHubView from '@/views/PapersHubView.vue'
@@ -57,6 +58,12 @@ export const router = createRouter({
       name: 'paper-detail',
       component: PaperDetailView,
       meta: { title: '论文详情', requiresWorkspace: true },
+    },
+    {
+      path: '/projects/:projectId/analysis',
+      name: 'project-analysis',
+      component: AnalysisWorkspaceView,
+      meta: { title: '分析工作台', requiresWorkspace: true },
     },
     {
       path: '/projects/:projectId/item-links',
