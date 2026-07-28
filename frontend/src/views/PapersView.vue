@@ -80,7 +80,7 @@ const scopes = ref<AnalysisScopesViewDocument | null>(null)
 const scopeOpen = ref(false)
 const scopeForm = ref({ name: '', purpose: '' })
 const matrix = ref<LiteratureMatrix | null>(null)
-const matrixMode = ref<'catalog' | 'analysis'>('analysis')
+const matrixMode = ref<'catalog' | 'analysis'>('catalog')
 const activeScopeId = ref('')
 const visibleColumns = ref({
   source: true,
@@ -511,17 +511,17 @@ onMounted(() => {
     <div class="segmented-control matrix-mode-switch" aria-label="矩阵视图">
       <button
         type="button"
-        :class="{ active: matrixMode === 'analysis' }"
-        @click="matrixMode = 'analysis'"
-      >
-        <TableProperties :size="15" /> 分析矩阵
-      </button>
-      <button
-        type="button"
         :class="{ active: matrixMode === 'catalog' }"
         @click="matrixMode = 'catalog'"
       >
         档案列表
+      </button>
+      <button
+        type="button"
+        :class="{ active: matrixMode === 'analysis' }"
+        @click="matrixMode = 'analysis'"
+      >
+        <TableProperties :size="15" /> 分析矩阵
       </button>
     </div>
     <select

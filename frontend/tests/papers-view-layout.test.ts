@@ -9,6 +9,11 @@ const stylesheet = readFileSync(resolve(process.cwd(), 'src/styles/main.css'), '
 const papersView = readFileSync(resolve(process.cwd(), 'src/views/PapersView.vue'), 'utf8')
 
 describe('papers view layout', () => {
+  it('opens the catalog first and places it before the analysis matrix switch', () => {
+    expect(papersView).toContain("const matrixMode = ref<'catalog' | 'analysis'>('catalog')")
+    expect(papersView).toMatch(/matrix-mode-switch[\s\S]*档案列表[\s\S]*分析矩阵/)
+  })
+
   it('keeps the analysis matrix focused on paper-level introductory metadata', () => {
     for (const heading of [
       '一句话总结',
