@@ -172,14 +172,8 @@ async function loadMatrix() {
   }
 }
 
-function compactItems(items: string[]) {
-  return items.length ? items.join('\n') : '—'
-}
-
 function readinessLabel(row: LiteratureMatrixRow) {
-  return row.readiness.missing_categories.length
-    ? `缺：${row.readiness.missing_categories.join('、')}`
-    : '分析材料齐全'
+  return row.readiness.ready_count === 4 ? '资料齐全' : '待继续整理'
 }
 
 async function openMatrixEdit(row: LiteratureMatrixRow) {
@@ -652,20 +646,13 @@ onMounted(() => {
     <table class="paper-table literature-matrix">
       <thead>
         <tr>
-          <th>论文</th>
-          <th>准备度</th>
-          <th>一句话总结</th>
-          <th>背景</th>
-          <th>研究问题</th>
-          <th>经典工作</th>
-          <th>方法</th>
-          <th>挑战</th>
-          <th>创新</th>
-          <th>实验</th>
-          <th>发现</th>
-          <th>局限</th>
-          <th>条件</th>
-          <th>证据</th>
+          <th>论文简介</th>
+          <th>发表信息</th>
+          <th>主题关键词</th>
+          <th>分组</th>
+          <th>阅读进度</th>
+          <th>来源</th>
+          <th>整理进度</th>
           <th><span class="sr-only">操作</span></th>
         </tr>
       </thead>
@@ -678,10 +665,33 @@ onMounted(() => {
             >
               {{ row.short_title || row.title }}
             </RouterLink>
-            <span>{{ row.year ?? '年份待补' }} · {{ row.venue || '载体待补' }}</span>
-            <small>{{ row.group || '未分组' }}</small>
+            <span :title="row.authors.join('、')">
+              {{ row.authors.join('、') || '作者待补充' }}
+            </span>
+          </td>
+          <td class="matrix-publication-cell">
+            <strong>{{ row.year ?? '年份待补' }}</strong>
+            <span :title="row.venue || undefined">{{ row.venue || '载体待补' }}</span>
           </td>
           <td>
+            <div v-if="row.keywords.length" class="matrix-keywords">
+              <span v-for="keyword in row.keywords.slice(0, 3)" :key="keyword">
+                {{ keyword }}
+              </span>
+              <small v-if="row.keywords.length > 3">+{{ row.keywords.length - 3 }}</small>
+            </div>
+            <span v-else class="table-placeholder">待补充</span>
+          </td>
+          <td class="matrix-quiet-cell">{{ row.group || '未分组' }}</td>
+          <td>
+            <span class="reading-chip">{{ readingLabel(row.reading_status) }}</span>
+          </td>
+          <td>
+            <span class="source-chip" :class="`source-chip--${row.source_status}`">
+              {{ sourceLabel(row.source_status) }}
+            </span>
+          </td>
+          <td class="matrix-readiness-cell">
             <span
               class="readiness-chip"
               :class="{ 'readiness-chip--complete': row.readiness.ready_count === 4 }"
@@ -690,18 +700,6 @@ onMounted(() => {
             </span>
             <small class="matrix-cell-note">{{ readinessLabel(row) }}</small>
           </td>
-          <td class="matrix-text-cell">{{ row.one_sentence_summary || '—' }}</td>
-          <td class="matrix-text-cell">{{ compactItems(row.background) }}</td>
-          <td class="matrix-text-cell">{{ compactItems(row.research_problems) }}</td>
-          <td class="matrix-text-cell">{{ compactItems(row.related_work) }}</td>
-          <td class="matrix-text-cell">{{ compactItems(row.methods) }}</td>
-          <td class="matrix-text-cell">{{ compactItems(row.challenges) }}</td>
-          <td class="matrix-text-cell">{{ compactItems(row.innovations) }}</td>
-          <td class="matrix-text-cell">{{ compactItems(row.experiments) }}</td>
-          <td class="matrix-text-cell">{{ compactItems(row.findings) }}</td>
-          <td class="matrix-text-cell">{{ compactItems(row.limitations) }}</td>
-          <td class="matrix-text-cell">{{ compactItems(row.conditions) }}</td>
-          <td>{{ row.evidence_count }}</td>
           <td>
             <div class="table-actions">
               <button
@@ -741,8 +739,8 @@ onMounted(() => {
     <p>切换分析集合，或先在项目中添加论文。</p>
   </section>
 
-  <div v-else-if="paperStore.items.length" class="paper-table-wrap">
-    <table class="paper-table">
+  <div v-else-if="paperStore.items.length" class="paper-table-wrap catalog-table-wrap">
+    <table class="paper-table catalog-table">
       <thead>
         <tr>
           <th class="selection-cell">
@@ -753,15 +751,15 @@ onMounted(() => {
               @change="toggleVisibleSelection"
             />
           </th>
-          <th>论文</th>
-          <th v-if="visibleColumns.source">来源</th>
-          <th v-if="visibleColumns.group">分组</th>
-          <th v-if="visibleColumns.publication">发表载体</th>
-          <th v-if="visibleColumns.citations">被引</th>
-          <th v-if="visibleColumns.pages">页数</th>
-          <th v-if="visibleColumns.reading">阅读状态</th>
-          <th v-if="visibleColumns.updated">更新时间</th>
-          <th><span class="sr-only">操作</span></th>
+          <th class="catalog-paper-column">论文</th>
+          <th v-if="visibleColumns.source" class="catalog-source-column">来源</th>
+          <th v-if="visibleColumns.group" class="catalog-group-column">分组</th>
+          <th v-if="visibleColumns.publication" class="catalog-publication-column">发表载体</th>
+          <th v-if="visibleColumns.citations" class="catalog-number-column">被引</th>
+          <th v-if="visibleColumns.pages" class="catalog-number-column">页数</th>
+          <th v-if="visibleColumns.reading" class="catalog-reading-column">阅读状态</th>
+          <th v-if="visibleColumns.updated" class="catalog-updated-column">更新时间</th>
+          <th class="catalog-actions-column"><span class="sr-only">操作</span></th>
         </tr>
       </thead>
       <tbody>
@@ -774,14 +772,17 @@ onMounted(() => {
               :aria-label="`选择 ${paper.title}`"
             />
           </td>
-          <td>
+          <td class="catalog-paper-cell">
             <RouterLink
               class="paper-title-link"
               :to="`/projects/${projectId}/papers/${paper.paper_id}`"
+              :title="paper.title"
             >
               {{ paper.title }}
             </RouterLink>
-            <span>{{ paper.authors.join('、') || paper.source_filename || '待补充作者' }}</span>
+            <span :title="paper.authors.join('、') || paper.source_filename || undefined">
+              {{ paper.authors.join('、') || paper.source_filename || '待补充作者' }}
+            </span>
           </td>
           <td v-if="visibleColumns.source">
             <span class="source-chip" :class="`source-chip--${paper.source_status}`">
