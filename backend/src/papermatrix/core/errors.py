@@ -137,6 +137,27 @@ class RevisionConflictError(PaperMatrixError):
         )
 
 
+class ItemLinkNotFoundError(PaperMatrixError):
+    def __init__(self) -> None:
+        super().__init__(
+            "PM-ITEM-LINK-001",
+            "条目关系不存在。",
+            status_code=404,
+            action="请刷新关系列表后重试。",
+        )
+
+
+class ItemReferenceNotFoundError(PaperMatrixError):
+    def __init__(self, *, endpoint: str) -> None:
+        super().__init__(
+            "PM-ITEM-LINK-002",
+            "关系端点不是当前项目中的有效分析条目。",
+            status_code=422,
+            action="请选择仍然存在的论文条目。",
+            details={"endpoint": endpoint},
+        )
+
+
 class ProjectNotFoundError(PaperMatrixError):
     def __init__(self) -> None:
         super().__init__(

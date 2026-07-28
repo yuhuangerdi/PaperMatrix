@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from papermatrix import __version__
 from papermatrix.api.errors import papermatrix_error_handler
 from papermatrix.api.v1.health import router as health_router
+from papermatrix.api.v1.item_links import router as item_links_router
 from papermatrix.api.v1.paper_content import router as paper_content_router
 from papermatrix.api.v1.papers import router as papers_router
 from papermatrix.api.v1.projects import router as projects_router
@@ -23,6 +24,7 @@ from papermatrix.core.errors import PaperMatrixError
 from papermatrix.core.logging import configure_logging
 from papermatrix.core.schema_registry import SchemaRegistry
 from papermatrix.repositories.local_config_repository import LocalConfigRepository
+from papermatrix.services.item_link_service import ItemLinkService
 from papermatrix.services.paper_content_service import PaperContentService
 from papermatrix.services.paper_service import PaperService
 from papermatrix.services.project_service import ProjectService
@@ -60,6 +62,7 @@ def create_app(
     app.state.settings = active_settings
     app.state.workspace_service = workspace_service
     app.state.project_service = ProjectService(workspace_service, schemas)
+    app.state.item_link_service = ItemLinkService(workspace_service, schemas)
     app.state.paper_content_service = PaperContentService(
         workspace_service,
         schemas,
@@ -104,6 +107,7 @@ def create_app(
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(workspace_router, prefix="/api/v1")
     app.include_router(projects_router, prefix="/api/v1")
+    app.include_router(item_links_router, prefix="/api/v1")
     app.include_router(papers_router, prefix="/api/v1")
     app.include_router(paper_content_router, prefix="/api/v1")
     return app

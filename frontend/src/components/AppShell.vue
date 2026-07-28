@@ -33,7 +33,13 @@ const navItems = computed(() => [
     to: '/projects',
     icon: FolderKanban,
     disabled: !appStore.health?.workspace_initialized,
-    activeNames: ['projects', 'project-new', 'project-detail', 'project-edit'],
+    activeNames: [
+      'projects',
+      'project-new',
+      'project-detail',
+      'project-edit',
+      'project-item-links',
+    ],
   },
   {
     label: '论文矩阵',

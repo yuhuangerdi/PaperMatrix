@@ -4,6 +4,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { usePaperStore } from '@/stores/papers'
+import { useItemLinkStore } from '@/stores/itemLinks'
 import type {
   NoteItemDocument,
   NoteItemSlot,
@@ -148,10 +149,11 @@ function noteItemsFixture(slots: NoteItemSlot[]): NoteItemDocument {
   }
 }
 
-async function mountDetail(initialItems: NoteItemDocument) {
+async function mountDetail(initialItems: NoteItemDocument, query = '') {
   const pinia = createPinia()
   setActivePinia(pinia)
   const store = usePaperStore()
+  const itemLinkStore = useItemLinkStore()
   const note: PaperNote = {
     paper_id: paperId,
     markdown: '# AgentCyberRange',
@@ -178,6 +180,10 @@ async function mountDetail(initialItems: NoteItemDocument) {
   vi.spyOn(store, 'getQuestions').mockResolvedValue(questions)
   vi.spyOn(store, 'getAnalysis').mockResolvedValue(analysis)
   vi.spyOn(store, 'getNoteItems').mockResolvedValue(initialItems)
+  vi.spyOn(itemLinkStore, 'inspectImpacts').mockResolvedValue({
+    references: [],
+    affected_links: [],
+  })
 
   const router = createRouter({
     history: createMemoryHistory(),
@@ -188,7 +194,7 @@ async function mountDetail(initialItems: NoteItemDocument) {
       },
     ],
   })
-  await router.push(`/projects/${projectId}/papers/${paperId}`)
+  await router.push(`/projects/${projectId}/papers/${paperId}${query}`)
   await router.isReady()
   const wrapper = mount(PaperDetailView, {
     global: {
@@ -255,6 +261,31 @@ describe('paper note item workflow', () => {
       wrapper.get<HTMLTextAreaElement>('textarea[aria-label="结构化笔记条目正文"]').element.value,
     ).toBe('- 主要思路：分层推理。')
     expect(wrapper.get('.note-item-editor-pane h2').text()).toContain('2.2 · PentestGPT')
+  })
+
+  it('opens a stable item target from project-level navigation without exposing a file path', async () => {
+    const targetItemId = '77777777-7777-4777-8777-777777777777'
+    const target = fixedSlot({
+      slot_key: `3.1:${targetItemId}`,
+      template_key: '3.1',
+      kind: 'method',
+      label: '规划方法',
+      section_title: '3. 本文方法',
+      markdown: '使用任务树。',
+      item_id: targetItemId,
+      source_fingerprint: 'b'.repeat(64),
+      sync_status: 'synced',
+      can_delete: true,
+    })
+    const { wrapper } = await mountDetail(
+      noteItemsFixture([fixedSlot(), target]),
+      `?tab=note&mode=items&item=${targetItemId}`,
+    )
+
+    expect(wrapper.get('.detail-tabs button.active').text()).toContain('结构化笔记')
+    expect(wrapper.get('.note-mode-switch button.active').text()).toContain('条目模式')
+    expect(wrapper.get('.note-item-editor-pane h2').text()).toContain('规划方法')
+    expect(wrapper.text()).not.toContain('/notes/')
   })
 
   it('selects a newly added repeatable item after the refreshed document arrives', async () => {

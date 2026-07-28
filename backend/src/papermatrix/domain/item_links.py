@@ -8,6 +8,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, model_validator
 
+from papermatrix.domain.paper import AnalysisItem, AnalysisItemKind
+
 ItemLinkType = Literal[
     "addresses",
     "partially_addresses",
@@ -60,6 +62,15 @@ class ItemLink(BaseModel):
             updated_at=now,
         )
 
+    def update(self, *, type: ItemLinkType, description: str) -> ItemLink:
+        return self.model_copy(
+            update={
+                "type": type,
+                "description": description.strip(),
+                "updated_at": datetime.now(UTC),
+            }
+        )
+
 
 class ItemLinksDocument(BaseModel):
     schema_version: Literal[1] = 1
@@ -78,3 +89,42 @@ class ItemLinksDocument(BaseModel):
     @classmethod
     def empty(cls, project_id: UUID) -> ItemLinksDocument:
         return cls(project_id=project_id, revision=0, updated_at=datetime.now(UTC))
+
+
+ItemReferenceStatus = Literal["available", "missing_paper", "missing_item"]
+
+
+class ProjectAnalysisItem(BaseModel):
+    paper_id: UUID
+    paper_title: str
+    item: AnalysisItem
+
+
+class ProjectAnalysisItemCatalog(BaseModel):
+    project_id: UUID
+    items: list[ProjectAnalysisItem]
+
+
+class ItemReferenceView(BaseModel):
+    reference: ItemReference
+    status: ItemReferenceStatus
+    paper_title: str | None = None
+    item_title: str | None = None
+    item_kind: AnalysisItemKind | None = None
+
+
+class ItemLinkView(BaseModel):
+    link: ItemLink
+    source: ItemReferenceView
+    target: ItemReferenceView
+
+
+class ItemLinksViewDocument(BaseModel):
+    document: ItemLinksDocument
+    links: list[ItemLinkView]
+    dangling_count: int = Field(ge=0)
+
+
+class ItemLinkImpact(BaseModel):
+    references: list[ItemReference]
+    affected_links: list[ItemLinkView]

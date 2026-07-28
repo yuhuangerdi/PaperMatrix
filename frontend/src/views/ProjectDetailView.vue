@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Archive, ArrowLeft, FileText, Pencil, RotateCcw, Trash2 } from 'lucide-vue-next'
+import { Archive, ArrowLeft, FileText, Network, Pencil, RotateCcw, Trash2 } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
@@ -126,6 +126,18 @@ onMounted(() => {
       </div>
       <RouterLink class="button button--primary" :to="`/projects/${projectId}/papers`">
         打开论文矩阵
+      </RouterLink>
+    </section>
+
+    <section class="paper-entry-band">
+      <div class="empty-icon"><Network :size="26" /></div>
+      <div>
+        <p class="eyebrow">跨论文分析</p>
+        <h2>维护结构化条目关系</h2>
+        <p>连接同篇或跨篇的问题、方法、实验和发现，并检查反向引用与缺失目标。</p>
+      </div>
+      <RouterLink class="button button--secondary" :to="`/projects/${projectId}/item-links`">
+        打开条目关系
       </RouterLink>
     </section>
 

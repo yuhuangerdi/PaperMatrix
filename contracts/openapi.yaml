@@ -823,6 +823,127 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/RelationsDocument" }
+  /projects/{project_id}/analysis/items:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      operationId: listProjectAnalysisItems
+      summary: 列出项目内可关联的已确认条目
+      responses:
+        "200":
+          description: Project analysis item catalog
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectAnalysisItemCatalog" }
+  /projects/{project_id}/papers/{paper_id}/analysis/items/{item_id}/location:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+      - in: path
+        name: item_id
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: resolveAnalysisItem
+      summary: 通过稳定 ID 解析条目位置
+      responses:
+        "200":
+          description: Stable item location without filesystem paths
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectAnalysisItem" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/item-links:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      operationId: listItemLinks
+      summary: 获取条目关系及端点诊断
+      responses:
+        "200":
+          description: Item link view
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ItemLinksViewDocument" }
+    post:
+      operationId: createItemLink
+      summary: 建立同篇或跨篇条目关系
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ItemLinkCreate" }
+      responses:
+        "201":
+          description: Created link
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ItemLinksViewDocument" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+        "422": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/item-links/{link_id}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - in: path
+        name: link_id
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updateItemLink
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ItemLinkUpdate" }
+      responses:
+        "200":
+          description: Updated link
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ItemLinksViewDocument" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+    delete:
+      operationId: deleteItemLink
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expected_revision]
+              properties:
+                expected_revision: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Remaining links
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ItemLinksViewDocument" }
+  /projects/{project_id}/item-links/impacts:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    post:
+      operationId: inspectItemLinkImpacts
+      summary: 删除条目前检查受影响关系
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [references]
+              properties:
+                references:
+                  type: array
+                  minItems: 1
+                  items: { $ref: "#/components/schemas/ItemReference" }
+      responses:
+        "200":
+          description: Affected links
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ItemLinkImpact" }
   /projects/{project_id}/research-gaps:
     parameters:
       - $ref: "#/components/parameters/ProjectId"
@@ -1322,6 +1443,88 @@ components:
         links:
           type: array
           items: { $ref: "#/components/schemas/ItemLink" }
+    ProjectAnalysisItem:
+      type: object
+      required: [paper_id, paper_title, item]
+      properties:
+        paper_id: { type: string, format: uuid }
+        paper_title: { type: string }
+        item: { $ref: "#/components/schemas/AnalysisItem" }
+    ProjectAnalysisItemCatalog:
+      type: object
+      required: [project_id, items]
+      properties:
+        project_id: { type: string, format: uuid }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ProjectAnalysisItem" }
+    ItemReferenceView:
+      type: object
+      required: [reference, status, paper_title, item_title, item_kind]
+      properties:
+        reference: { $ref: "#/components/schemas/ItemReference" }
+        status:
+          type: string
+          enum: [available, missing_paper, missing_item]
+        paper_title: { type: [string, "null"] }
+        item_title: { type: [string, "null"] }
+        item_kind: { type: [string, "null"] }
+    ItemLinkView:
+      type: object
+      required: [link, source, target]
+      properties:
+        link: { $ref: "#/components/schemas/ItemLink" }
+        source: { $ref: "#/components/schemas/ItemReferenceView" }
+        target: { $ref: "#/components/schemas/ItemReferenceView" }
+    ItemLinksViewDocument:
+      type: object
+      required: [document, links, dangling_count]
+      properties:
+        document: { $ref: "#/components/schemas/ItemLinksDocument" }
+        links:
+          type: array
+          items: { $ref: "#/components/schemas/ItemLinkView" }
+        dangling_count: { type: integer, minimum: 0 }
+    ItemLinkImpact:
+      type: object
+      required: [references, affected_links]
+      properties:
+        references:
+          type: array
+          items: { $ref: "#/components/schemas/ItemReference" }
+        affected_links:
+          type: array
+          items: { $ref: "#/components/schemas/ItemLinkView" }
+    ItemLinkCreate:
+      type: object
+      required: [source, target, type, description, expected_revision]
+      properties:
+        source: { $ref: "#/components/schemas/ItemReference" }
+        target: { $ref: "#/components/schemas/ItemReference" }
+        type: { $ref: "#/components/schemas/ItemLinkType" }
+        description: { type: string, maxLength: 5000 }
+        expected_revision: { type: integer, minimum: 0 }
+    ItemLinkUpdate:
+      type: object
+      required: [type, description, expected_revision]
+      properties:
+        type: { $ref: "#/components/schemas/ItemLinkType" }
+        description: { type: string, maxLength: 5000 }
+        expected_revision: { type: integer, minimum: 1 }
+    ItemLinkType:
+      type: string
+      enum:
+        [
+          addresses,
+          partially_addresses,
+          depends_on,
+          enables,
+          evaluates,
+          supports,
+          contradicts,
+          extends,
+          related_to,
+        ]
     AnalysisItem:
       type: object
       required:

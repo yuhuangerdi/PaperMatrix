@@ -23,6 +23,7 @@ import { onBeforeRouteLeave, RouterLink, useRoute } from 'vue-router'
 import { ApiError } from '@/api/client'
 import MarkdownDocument from '@/components/MarkdownDocument.vue'
 import NoteCandidateReviewDialog from '@/components/NoteCandidateReviewDialog.vue'
+import { useItemLinkStore } from '@/stores/itemLinks'
 import { usePaperStore } from '@/stores/papers'
 import type {
   AnalysisItem,
@@ -53,9 +54,15 @@ type StructuredAttributeRow = {
 
 const route = useRoute()
 const paperStore = usePaperStore()
+const itemLinkStore = useItemLinkStore()
 const projectId = computed(() => String(route.params.projectId))
 const paperId = computed(() => String(route.params.paperId))
-const activeTab = ref<DetailTab>('overview')
+const requestedTab = typeof route.query.tab === 'string' ? route.query.tab : ''
+const activeTab = ref<DetailTab>(
+  ['overview', 'note', 'supplement', 'questions', 'analysis'].includes(requestedTab)
+    ? (requestedTab as DetailTab)
+    : 'overview',
+)
 const paper = ref<Paper | null>(null)
 const note = ref<PaperNote | null>(null)
 const noteDraft = ref('')
@@ -65,7 +72,12 @@ const supplement = ref<PaperNote | null>(null)
 const supplementDraft = ref('')
 const savedSupplementDraft = ref('')
 const supplementState = ref<SaveState>('loading')
-const noteMode = ref<NoteMode>('document')
+const requestedMode = typeof route.query.mode === 'string' ? route.query.mode : ''
+const noteMode = ref<NoteMode>(
+  ['document', 'items', 'favorites'].includes(requestedMode)
+    ? (requestedMode as NoteMode)
+    : 'document',
+)
 const noteDocumentEditing = ref(false)
 const noteItems = ref<NoteItemDocument | null>(null)
 const selectedNoteItemId = ref<string | null>(null)
@@ -521,7 +533,9 @@ async function copySupplement() {
 }
 
 function selectInitialNoteItem(document: NoteItemDocument) {
+  const requestedItemId = typeof route.query.item === 'string' ? route.query.item : null
   const selected =
+    document.slots.find((item) => item.item_id === requestedItemId) ??
     document.slots.find((item) => item.slot_key === selectedNoteItemId.value) ??
     document.slots[0] ??
     null
@@ -680,9 +694,24 @@ async function updateNoteItemFavorite(
 async function deleteNoteItems(itemIds: string[]) {
   if (!noteItems.value || itemIds.length === 0) return
   const noun = itemIds.length === 1 ? '这个条目' : `选中的 ${itemIds.length} 个条目`
+  let affectedLinkCount = 0
+  try {
+    const impact = await itemLinkStore.inspectImpacts(
+      projectId.value,
+      itemIds.map((itemId) => ({ paper_id: paperId.value, item_id: itemId })),
+    )
+    affectedLinkCount = impact.affected_links.length
+  } catch (error: unknown) {
+    errorMessage.value =
+      error instanceof ApiError ? error.message : '无法检查条目关系影响，删除已取消。'
+    return
+  }
+  const impactMessage = affectedLinkCount
+    ? `\n\n该操作会留下 ${affectedLinkCount} 条可诊断的悬空关系引用，关系记录不会被静默删除。`
+    : ''
   if (
     !window.confirm(
-      `删除${noun}吗？对应的结构化笔记标题块和分析投影都会被删除，此操作不会修改 PDF。`,
+      `删除${noun}吗？对应的结构化笔记标题块和分析投影都会被删除，此操作不会修改 PDF。${impactMessage}`,
     )
   ) {
     return
@@ -1058,6 +1087,26 @@ async function refreshNoteCandidates() {
 
 async function importNoteCandidates(candidateIds: string[], removalItemIds: string[]) {
   if (!candidatePreview.value) return
+  if (removalItemIds.length) {
+    try {
+      const impact = await itemLinkStore.inspectImpacts(
+        projectId.value,
+        removalItemIds.map((itemId) => ({ paper_id: paperId.value, item_id: itemId })),
+      )
+      if (
+        impact.affected_links.length &&
+        !window.confirm(
+          `确认删除会留下 ${impact.affected_links.length} 条可诊断的悬空关系引用；关系记录不会被静默删除。继续吗？`,
+        )
+      ) {
+        return
+      }
+    } catch (error: unknown) {
+      errorMessage.value =
+        error instanceof ApiError ? error.message : '无法检查条目关系影响，候选同步已取消。'
+      return
+    }
+  }
   busy.value = true
   errorMessage.value = ''
   try {

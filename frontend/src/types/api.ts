@@ -426,6 +426,44 @@ export interface ItemLinksDocument {
   links: ItemLink[]
 }
 
+export type ItemReferenceStatus = 'available' | 'missing_paper' | 'missing_item'
+
+export interface ProjectAnalysisItem {
+  paper_id: string
+  paper_title: string
+  item: AnalysisItem
+}
+
+export interface ProjectAnalysisItemCatalog {
+  project_id: string
+  items: ProjectAnalysisItem[]
+}
+
+export interface ItemReferenceView {
+  reference: ItemReference
+  status: ItemReferenceStatus
+  paper_title: string | null
+  item_title: string | null
+  item_kind: AnalysisItem['kind'] | null
+}
+
+export interface ItemLinkView {
+  link: ItemLink
+  source: ItemReferenceView
+  target: ItemReferenceView
+}
+
+export interface ItemLinksViewDocument {
+  document: ItemLinksDocument
+  links: ItemLinkView[]
+  dangling_count: number
+}
+
+export interface ItemLinkImpact {
+  references: ItemReference[]
+  affected_links: ItemLinkView[]
+}
+
 export interface ScanCandidate {
   candidate_id: string
   display_path: string
