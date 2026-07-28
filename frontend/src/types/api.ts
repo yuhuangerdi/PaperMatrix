@@ -493,6 +493,52 @@ export interface AnalysisScopesViewDocument {
   scopes: AnalysisScopeView[]
 }
 
+export interface AnalysisReadiness {
+  method_ready: boolean
+  experiment_ready: boolean
+  limitation_ready: boolean
+  evidence_ready: boolean
+  ready_count: number
+  missing_categories: string[]
+}
+
+export interface LiteratureMatrixRow {
+  paper_id: string
+  title: string
+  short_title: string
+  authors: string[]
+  year: number | null
+  venue: string | null
+  group: string | null
+  reading_status: PaperSummary['reading_status']
+  source_status: PaperSourceStatus
+  importance_score: number | null
+  one_sentence_summary: string
+  keywords: string[]
+  background: string[]
+  research_problems: string[]
+  related_work: string[]
+  methods: string[]
+  challenges: string[]
+  innovations: string[]
+  experiments: string[]
+  findings: string[]
+  limitations: string[]
+  conditions: string[]
+  evidence_count: number
+  readiness: AnalysisReadiness
+  revision: number
+}
+
+export interface LiteratureMatrix {
+  project_id: string
+  scope_id: string | null
+  scope_name: string | null
+  rows: LiteratureMatrixRow[]
+  missing_paper_ids: string[]
+  total: number
+}
+
 export interface ScanCandidate {
   candidate_id: string
   display_path: string

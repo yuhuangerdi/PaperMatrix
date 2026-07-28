@@ -138,6 +138,8 @@
 
 分析集合已实现 `GET/POST /projects/{project_id}/analysis-scopes` 与按 `scope_id` 的更新、删除。写接口保存明确论文 ID 与 `source_filter_snapshot`；读取响应附加可用/缺失论文 ID，但不把诊断结果写回 `scopes.yaml`。
 
+`GET /projects/{project_id}/matrices/literature` 实时读取论文 YAML 并聚合完整文献矩阵；可选 `scope_id` 保持集合顺序并返回缺失论文 ID。响应中的准备度只分项检查方法、实验、局限和证据，不写入文件，也不用于论文质量排名。矩阵中的基础信息编辑继续调用论文 PATCH 并校验 paper revision；结构化内容通过稳定条目入口编辑。
+
 问题归纳写接口必须分别接收方法条目和解决程度/理由，不得把自由显示文本当成唯一来源；所有目标 paper/item ID 必须限定在当前项目内。
 
 目标资源：

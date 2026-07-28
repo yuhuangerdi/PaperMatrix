@@ -1009,6 +1009,23 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AnalysisScopesViewDocument" }
+  /projects/{project_id}/matrices/literature:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - in: query
+        name: scope_id
+        required: false
+        schema: { type: [string, "null"], format: uuid }
+    get:
+      operationId: getLiteratureMatrix
+      summary: 从论文 YAML 实时派生项目文献总矩阵和分析准备度
+      responses:
+        "200":
+          description: Literature matrix
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LiteratureMatrix" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
   /projects/{project_id}/research-gaps:
     parameters:
       - $ref: "#/components/parameters/ProjectId"
@@ -1668,6 +1685,101 @@ components:
         - type: object
           properties:
             expected_revision: { type: integer, minimum: 1 }
+    AnalysisReadiness:
+      type: object
+      required:
+        [
+          method_ready,
+          experiment_ready,
+          limitation_ready,
+          evidence_ready,
+          ready_count,
+          missing_categories,
+        ]
+      properties:
+        method_ready: { type: boolean }
+        experiment_ready: { type: boolean }
+        limitation_ready: { type: boolean }
+        evidence_ready: { type: boolean }
+        ready_count: { type: integer, minimum: 0, maximum: 4 }
+        missing_categories:
+          type: array
+          items: { type: string, enum: [方法, 实验, 局限, 证据] }
+    LiteratureMatrixRow:
+      type: object
+      required:
+        [
+          paper_id,
+          title,
+          short_title,
+          authors,
+          year,
+          venue,
+          group,
+          reading_status,
+          source_status,
+          importance_score,
+          one_sentence_summary,
+          keywords,
+          background,
+          research_problems,
+          related_work,
+          methods,
+          challenges,
+          innovations,
+          experiments,
+          findings,
+          limitations,
+          conditions,
+          evidence_count,
+          readiness,
+          revision,
+        ]
+      properties:
+        paper_id: { type: string, format: uuid }
+        title: { type: string }
+        short_title: { type: string }
+        authors: { type: array, items: { type: string } }
+        year: { type: [integer, "null"] }
+        venue: { type: [string, "null"] }
+        group: { type: [string, "null"] }
+        reading_status:
+          type: string
+          enum: [unread, skimmed, deep_read, summarized, reported]
+        source_status:
+          type: string
+          enum: [available, missing, changed, unreadable, unlinked]
+        importance_score: { type: [integer, "null"], minimum: 1, maximum: 5 }
+        one_sentence_summary: { type: string }
+        keywords: { type: array, items: { type: string } }
+        background: { type: array, items: { type: string } }
+        research_problems: { type: array, items: { type: string } }
+        related_work: { type: array, items: { type: string } }
+        methods: { type: array, items: { type: string } }
+        challenges: { type: array, items: { type: string } }
+        innovations: { type: array, items: { type: string } }
+        experiments: { type: array, items: { type: string } }
+        findings: { type: array, items: { type: string } }
+        limitations: { type: array, items: { type: string } }
+        conditions: { type: array, items: { type: string } }
+        evidence_count: { type: integer, minimum: 0 }
+        readiness: { $ref: "#/components/schemas/AnalysisReadiness" }
+        revision: { type: integer, minimum: 1 }
+    LiteratureMatrix:
+      type: object
+      required:
+        [project_id, scope_id, scope_name, rows, missing_paper_ids, total]
+      properties:
+        project_id: { type: string, format: uuid }
+        scope_id: { type: [string, "null"], format: uuid }
+        scope_name: { type: [string, "null"] }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/LiteratureMatrixRow" }
+        missing_paper_ids:
+          type: array
+          items: { type: string, format: uuid }
+        total: { type: integer, minimum: 0 }
     AnalysisItem:
       type: object
       required:

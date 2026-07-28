@@ -14,6 +14,7 @@ import {
   Trash2,
   Upload,
   Layers3,
+  TableProperties,
   X,
 } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
@@ -21,12 +22,15 @@ import { RouterLink, useRoute } from 'vue-router'
 
 import { ApiError } from '@/api/client'
 import { useAnalysisScopeStore } from '@/stores/analysisScopes'
+import { useMatrixStore } from '@/stores/matrices'
 import { usePaperStore } from '@/stores/papers'
 import { useProjectStore } from '@/stores/projects'
 import type {
   AnalysisScopesViewDocument,
   InvalidPaperRecord,
   Paper,
+  LiteratureMatrix,
+  LiteratureMatrixRow,
   PaperSourceStatus,
   PaperSummary,
 } from '@/types/api'
@@ -36,6 +40,7 @@ type ImportMode = 'upload' | 'path' | 'scan' | 'manual'
 const route = useRoute()
 const paperStore = usePaperStore()
 const analysisScopeStore = useAnalysisScopeStore()
+const matrixStore = useMatrixStore()
 const projectStore = useProjectStore()
 const projectId = computed(() => String(route.params.projectId))
 const query = ref('')
@@ -74,6 +79,9 @@ const selectedPaperIds = ref<string[]>([])
 const scopes = ref<AnalysisScopesViewDocument | null>(null)
 const scopeOpen = ref(false)
 const scopeForm = ref({ name: '', purpose: '' })
+const matrix = ref<LiteratureMatrix | null>(null)
+const matrixMode = ref<'catalog' | 'analysis'>('analysis')
+const activeScopeId = ref('')
 const visibleColumns = ref({
   source: true,
   group: true,
@@ -156,6 +164,66 @@ async function load() {
   }
 }
 
+async function loadMatrix() {
+  try {
+    matrix.value = await matrixStore.literature(projectId.value, activeScopeId.value || null)
+  } catch (error: unknown) {
+    errorMessage.value = error instanceof ApiError ? error.message : '无法加载分析矩阵。'
+  }
+}
+
+function compactItems(items: string[]) {
+  return items.length ? items.join('\n') : '—'
+}
+
+function readinessLabel(row: LiteratureMatrixRow) {
+  return row.readiness.missing_categories.length
+    ? `缺：${row.readiness.missing_categories.join('、')}`
+    : '分析材料齐全'
+}
+
+async function openMatrixEdit(row: LiteratureMatrixRow) {
+  const summary = paperStore.items.find((paper) => paper.paper_id === row.paper_id)
+  if (summary) {
+    await openEdit(summary)
+    return
+  }
+  busy.value = true
+  try {
+    const full = await paperStore.get(projectId.value, row.paper_id)
+    const fallback: PaperSummary = {
+      paper_id: full.paper_id,
+      project_id: full.project_id,
+      title: full.bibliography.title,
+      short_title: full.bibliography.short_title,
+      authors: full.bibliography.authors,
+      affiliations: full.bibliography.affiliations,
+      year: full.bibliography.year,
+      venue: full.bibliography.venue,
+      publication_date: full.bibliography.publication_date,
+      reading_date: full.organization.reading_date,
+      citation_count: full.bibliography.citation_count,
+      language: full.bibliography.language,
+      keywords: full.bibliography.keywords,
+      group: full.organization.group,
+      topics: full.organization.topics,
+      tags: full.organization.tags,
+      reading_status: full.organization.reading_status,
+      importance_score: full.organization.importance_score,
+      writing_uses: full.organization.writing_uses,
+      source_status: full.source.status,
+      source_filename: full.source.original_filename,
+      page_count: full.source.page_count,
+      one_sentence_summary: full.organization.one_sentence_summary,
+      updated_at: full.updated_at,
+      revision: full.revision,
+    }
+    await openEdit(fallback)
+  } finally {
+    busy.value = false
+  }
+}
+
 function toggleVisibleSelection() {
   if (allVisibleSelected.value) {
     const visible = new Set(paperStore.items.map((paper) => paper.paper_id))
@@ -229,6 +297,7 @@ async function submitImport() {
       successMessage.value = `已登记 ${result.imported.length} 篇，跳过 ${result.skipped.length} 篇。`
     }
     await load()
+    await loadMatrix()
     importOpen.value = false
   } catch (error: unknown) {
     errorMessage.value =
@@ -305,6 +374,7 @@ async function saveBasicInformation() {
     editOpen.value = false
     successMessage.value = '论文基础信息与分组已保存。'
     await load()
+    await loadMatrix()
   } catch (error: unknown) {
     errorMessage.value = error instanceof ApiError ? error.message : '保存论文信息失败。'
   } finally {
@@ -332,7 +402,7 @@ async function removePaper(paper: PaperSummary) {
   try {
     await paperStore.remove(projectId.value, paper.paper_id)
     successMessage.value = '论文记录已移除，原 PDF 未受影响。'
-    await projectStore.loadList(true)
+    await Promise.all([projectStore.loadList(true), loadMatrix()])
   } catch (error: unknown) {
     errorMessage.value = error instanceof ApiError ? error.message : '移除记录失败。'
   }
@@ -353,6 +423,7 @@ async function removeInvalidPaper(paper: InvalidPaperRecord) {
 }
 
 watch([sourceStatus, groupFilter, sort], () => void load())
+watch(activeScopeId, () => void loadMatrix())
 let queryTimer = 0
 watch(query, () => {
   window.clearTimeout(queryTimer)
@@ -371,6 +442,7 @@ onMounted(() => {
     analysisScopeStore.list(projectId.value).then((result) => {
       scopes.value = result
     }),
+    loadMatrix(),
   ])
 })
 </script>
@@ -442,6 +514,37 @@ onMounted(() => {
         </label>
       </div>
     </details>
+    <div class="segmented-control matrix-mode-switch" aria-label="矩阵视图">
+      <button
+        type="button"
+        :class="{ active: matrixMode === 'analysis' }"
+        @click="matrixMode = 'analysis'"
+      >
+        <TableProperties :size="15" /> 分析矩阵
+      </button>
+      <button
+        type="button"
+        :class="{ active: matrixMode === 'catalog' }"
+        @click="matrixMode = 'catalog'"
+      >
+        档案列表
+      </button>
+    </div>
+    <select
+      v-if="matrixMode === 'analysis'"
+      v-model="activeScopeId"
+      class="select-control"
+      aria-label="分析集合"
+    >
+      <option value="">项目全部论文</option>
+      <option
+        v-for="view in scopes?.scopes ?? []"
+        :key="view.scope.scope_id"
+        :value="view.scope.scope_id"
+      >
+        {{ view.scope.name }}（{{ view.available_paper_ids.length }}）
+      </option>
+    </select>
   </div>
 
   <div v-if="errorMessage" class="form-message form-message--error" role="alert">
@@ -542,7 +645,103 @@ onMounted(() => {
     </button>
   </section>
 
-  <div v-if="paperStore.items.length" class="paper-table-wrap">
+  <div
+    v-if="matrixMode === 'analysis' && matrix?.rows.length"
+    class="paper-table-wrap matrix-table-wrap"
+  >
+    <table class="paper-table literature-matrix">
+      <thead>
+        <tr>
+          <th>论文</th>
+          <th>准备度</th>
+          <th>一句话总结</th>
+          <th>背景</th>
+          <th>研究问题</th>
+          <th>经典工作</th>
+          <th>方法</th>
+          <th>挑战</th>
+          <th>创新</th>
+          <th>实验</th>
+          <th>发现</th>
+          <th>局限</th>
+          <th>条件</th>
+          <th>证据</th>
+          <th><span class="sr-only">操作</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="row in matrix.rows" :key="row.paper_id">
+          <td class="matrix-paper-cell">
+            <RouterLink
+              class="paper-title-link"
+              :to="`/projects/${projectId}/papers/${row.paper_id}`"
+            >
+              {{ row.short_title || row.title }}
+            </RouterLink>
+            <span>{{ row.year ?? '年份待补' }} · {{ row.venue || '载体待补' }}</span>
+            <small>{{ row.group || '未分组' }}</small>
+          </td>
+          <td>
+            <span
+              class="readiness-chip"
+              :class="{ 'readiness-chip--complete': row.readiness.ready_count === 4 }"
+            >
+              {{ row.readiness.ready_count }}/4
+            </span>
+            <small class="matrix-cell-note">{{ readinessLabel(row) }}</small>
+          </td>
+          <td class="matrix-text-cell">{{ row.one_sentence_summary || '—' }}</td>
+          <td class="matrix-text-cell">{{ compactItems(row.background) }}</td>
+          <td class="matrix-text-cell">{{ compactItems(row.research_problems) }}</td>
+          <td class="matrix-text-cell">{{ compactItems(row.related_work) }}</td>
+          <td class="matrix-text-cell">{{ compactItems(row.methods) }}</td>
+          <td class="matrix-text-cell">{{ compactItems(row.challenges) }}</td>
+          <td class="matrix-text-cell">{{ compactItems(row.innovations) }}</td>
+          <td class="matrix-text-cell">{{ compactItems(row.experiments) }}</td>
+          <td class="matrix-text-cell">{{ compactItems(row.findings) }}</td>
+          <td class="matrix-text-cell">{{ compactItems(row.limitations) }}</td>
+          <td class="matrix-text-cell">{{ compactItems(row.conditions) }}</td>
+          <td>{{ row.evidence_count }}</td>
+          <td>
+            <div class="table-actions">
+              <button
+                class="icon-button"
+                type="button"
+                :aria-label="`编辑 ${row.title}`"
+                @click="openMatrixEdit(row)"
+              >
+                <Pencil :size="16" />
+              </button>
+              <RouterLink
+                class="icon-button"
+                :to="{
+                  path: `/projects/${projectId}/papers/${row.paper_id}`,
+                  query: { tab: 'note', mode: 'items' },
+                }"
+                :aria-label="`打开 ${row.title} 的结构化条目`"
+              >
+                <BookOpen :size="16" />
+              </RouterLink>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p v-if="matrix.missing_paper_ids.length" class="matrix-missing-note">
+      当前集合保留 {{ matrix.missing_paper_ids.length }} 个已缺失论文 ID；范围未被自动缩小。
+    </p>
+  </div>
+
+  <section
+    v-else-if="matrixMode === 'analysis' && matrix && matrix.rows.length === 0"
+    class="empty-state empty-state--compact"
+  >
+    <TableProperties :size="28" />
+    <h2>当前范围没有可用论文</h2>
+    <p>切换分析集合，或先在项目中添加论文。</p>
+  </section>
+
+  <div v-else-if="paperStore.items.length" class="paper-table-wrap">
     <table class="paper-table">
       <thead>
         <tr>

@@ -452,6 +452,135 @@ a.item-link-endpoint:hover strong {
   color: var(--ink);
 }
 
+.matrix-mode-switch {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.matrix-mode-switch button {
+  display: inline-flex;
+  align-items: center;
+  min-width: 72px;
+  gap: 5px;
+  justify-content: center;
+}
+
+.matrix-table-wrap {
+  max-height: calc(100vh - 300px);
+  border: 1px solid var(--line);
+}
+
+.paper-table.literature-matrix {
+  width: 3060px;
+  min-width: 3060px;
+}
+
+.literature-matrix th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #edf2ef;
+}
+
+.paper-table.literature-matrix th:first-child,
+.paper-table.literature-matrix td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 260px;
+  background: var(--paper);
+  box-shadow: 1px 0 0 var(--line);
+}
+
+.paper-table.literature-matrix th:nth-child(2) {
+  width: 150px;
+}
+
+.paper-table.literature-matrix th:nth-child(n + 3):nth-child(-n + 13) {
+  width: 220px;
+}
+
+.paper-table.literature-matrix th:nth-child(14) {
+  width: 80px;
+}
+
+.paper-table.literature-matrix th:last-child {
+  width: 100px;
+}
+
+.paper-table.literature-matrix th:first-child {
+  z-index: 3;
+  background: #edf2ef;
+}
+
+.matrix-paper-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.matrix-paper-cell span,
+.matrix-paper-cell small,
+.matrix-cell-note {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.matrix-text-cell {
+  min-width: 180px;
+  max-width: 280px;
+  white-space: pre-line;
+  line-height: 1.45;
+}
+
+.readiness-chip {
+  display: inline-flex;
+  min-width: 42px;
+  justify-content: center;
+  padding: 3px 7px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.readiness-chip--complete {
+  color: var(--teal-dark);
+  background: var(--teal-soft);
+}
+
+.matrix-missing-note {
+  position: sticky;
+  left: 0;
+  width: min(680px, calc(100vw - 280px));
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .matrix-mode-switch {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .matrix-mode-switch button {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .matrix-table-wrap {
+    max-height: none;
+  }
+
+  .matrix-missing-note {
+    width: calc(100vw - 32px);
+  }
+}
+
 @media (max-width: 900px) {
   .item-link-composer {
     grid-template-columns: 1fr;
@@ -1326,6 +1455,7 @@ h1 {
 .paper-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   margin: 22px 0 16px;
 }
