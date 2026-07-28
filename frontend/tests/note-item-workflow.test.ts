@@ -288,6 +288,55 @@ describe('paper note item workflow', () => {
     expect(wrapper.text()).not.toContain('/notes/')
   })
 
+  it('deletes an empty repeatable slot by slot key while leaving the final placeholder', async () => {
+    const seed = fixedSlot({
+      slot_key: '4.1',
+      template_key: '4.1',
+      kind: 'challenge',
+      label: '挑战 1',
+      section_title: '4. 需要克服的挑战或难点',
+      repeatable: true,
+      repeatable_template_key: '4',
+      can_delete: true,
+    })
+    const added = fixedSlot({
+      slot_key: '4:66666666-6666-4666-8666-666666666666',
+      template_key: '4',
+      kind: 'challenge',
+      label: '状态污染',
+      section_title: '4. 需要克服的挑战或难点',
+      markdown: '- 为什么困难：上下文持续累积。',
+      item_id: '66666666-6666-4666-8666-666666666666',
+      source_fingerprint: 'c'.repeat(64),
+      sync_status: 'synced',
+      repeatable: true,
+      repeatable_template_key: '4',
+      can_delete: true,
+    })
+    const initial = noteItemsFixture([seed, added])
+    const refreshed = noteItemsFixture([{ ...added, can_delete: false }])
+    refreshed.note_revision = 2
+    refreshed.paper_revision = 2
+    const { wrapper, store, note, analysis } = await mountDetail(initial)
+    vi.mocked(store.getNoteItems).mockResolvedValueOnce(refreshed)
+    const deleteSpy = vi.spyOn(store, 'deleteNoteItems').mockResolvedValue({
+      note: { ...note, revision: 2 },
+      analysis: { ...analysis, revision: 2 },
+      deleted_item_ids: [],
+      deleted_slot_keys: ['4.1'],
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    await openItemMode(wrapper)
+    await wrapper.get('button[aria-label="删除当前条目"]').trigger('click')
+    await flushPromises()
+
+    expect(deleteSpy).toHaveBeenCalledWith(projectId, paperId, [], ['4.1'], 1, 1)
+    expect(wrapper.text()).not.toContain('4.1 · 挑战 1')
+    expect(wrapper.text()).toContain('4 · 状态污染')
+    expect(wrapper.find('button[aria-label="删除当前条目"]').exists()).toBe(false)
+  })
+
   it('selects a newly added repeatable item after the refreshed document arrives', async () => {
     const initial = noteItemsFixture([fixedSlot()])
     const createdSlot = fixedSlot({
@@ -385,11 +434,11 @@ describe('paper note item workflow', () => {
         kind: 'innovation',
         label: '创新点',
         description: '每个创新点保留完整分析字段。',
-        heading: '5. 大致流程和创新点（3+1）',
+        heading: '5. 大致流程和创新点',
         heading_level: 2,
         repeatable: true,
         child_heading_prefix: '创新点',
-        insert_before_heading: '5.5 附加贡献 +1',
+        insert_before_heading: '5.5 附加贡献',
         body_template:
           '- 针对的挑战：\n- 做了什么：\n- 与已有工作的区别：\n- 为什么有效：\n- 哪个实验验证：',
       },

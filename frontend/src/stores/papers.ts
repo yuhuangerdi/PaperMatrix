@@ -324,6 +324,7 @@ export const usePaperStore = defineStore('papers', {
       projectId: string,
       paperId: string,
       itemIds: string[],
+      slotKeys: string[],
       expectedNoteRevision: number,
       expectedPaperRevision: number,
     ) {
@@ -333,6 +334,7 @@ export const usePaperStore = defineStore('papers', {
           method: 'POST',
           body: {
             item_ids: itemIds,
+            slot_keys: slotKeys,
             expected_note_revision: expectedNoteRevision,
             expected_paper_revision: expectedPaperRevision,
           },

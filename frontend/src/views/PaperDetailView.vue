@@ -81,7 +81,7 @@ const noteMode = ref<NoteMode>(
 const noteDocumentEditing = ref(false)
 const noteItems = ref<NoteItemDocument | null>(null)
 const selectedNoteItemId = ref<string | null>(null)
-const selectedNoteItemIds = ref<string[]>([])
+const selectedNoteSlotKeys = ref<string[]>([])
 const noteItemDraft = ref('')
 const savedNoteItemDraft = ref('')
 const noteItemEditing = ref(false)
@@ -546,10 +546,12 @@ function selectInitialNoteItem(document: NoteItemDocument) {
 
 function applyNoteItems(document: NoteItemDocument) {
   noteItems.value = document
-  const currentIds = new Set(
-    document.slots.flatMap((item) => (item.can_delete && item.item_id ? [item.item_id] : [])),
+  const currentKeys = new Set(
+    document.slots.flatMap((item) => (item.can_delete ? [item.slot_key] : [])),
   )
-  selectedNoteItemIds.value = selectedNoteItemIds.value.filter((itemId) => currentIds.has(itemId))
+  selectedNoteSlotKeys.value = selectedNoteSlotKeys.value.filter((slotKey) =>
+    currentKeys.has(slotKey),
+  )
   candidatePreview.value = {
     paper_id: document.paper_id,
     note_revision: document.note_revision,
@@ -691,9 +693,10 @@ async function updateNoteItemFavorite(
   }
 }
 
-async function deleteNoteItems(itemIds: string[]) {
-  if (!noteItems.value || itemIds.length === 0) return
-  const noun = itemIds.length === 1 ? '这个条目' : `选中的 ${itemIds.length} 个条目`
+async function deleteNoteItems(itemIds: string[], slotKeys: string[] = []) {
+  if (!noteItems.value || itemIds.length + slotKeys.length === 0) return
+  const selectedCount = slotKeys.length || itemIds.length
+  const noun = selectedCount === 1 ? '这个条目' : `选中的 ${selectedCount} 个条目`
   let affectedLinkCount = 0
   try {
     const impact = await itemLinkStore.inspectImpacts(
@@ -723,6 +726,7 @@ async function deleteNoteItems(itemIds: string[]) {
       projectId.value,
       paperId.value,
       itemIds,
+      slotKeys,
       noteItems.value.note_revision,
       noteItems.value.paper_revision,
     )
@@ -732,14 +736,21 @@ async function deleteNoteItems(itemIds: string[]) {
     noteState.value = 'saved'
     analysis.value = result.analysis
     syncPaperRevision(result.analysis)
-    selectedNoteItemIds.value = []
+    selectedNoteSlotKeys.value = []
     await reloadNoteItems()
-    successMessage.value = `已删除 ${result.deleted_item_ids.length} 个条目及对应笔记内容。`
+    const deletedCount = result.deleted_slot_keys.length || result.deleted_item_ids.length
+    successMessage.value = `已删除 ${deletedCount} 个条目及对应笔记内容。`
   } catch (error: unknown) {
     errorMessage.value = error instanceof ApiError ? error.message : '删除条目失败，请刷新后重试。'
   } finally {
     busy.value = false
   }
+}
+
+async function deleteNoteSlots(slotKeys: string[]) {
+  const selected = (noteItems.value?.slots ?? []).filter((slot) => slotKeys.includes(slot.slot_key))
+  const itemIds = selected.flatMap((slot) => (slot.item_id ? [slot.item_id] : []))
+  await deleteNoteItems(itemIds, slotKeys)
 }
 
 function openNoteItemCreate(templateKey?: string | null) {
@@ -1412,14 +1423,14 @@ onBeforeUnmount(() => {
             >
               审阅 {{ noteItems.pending_candidate_count }} 项变化
             </button>
-            <div v-if="selectedNoteItemIds.length" class="note-item-bulk-actions">
+            <div v-if="selectedNoteSlotKeys.length" class="note-item-bulk-actions">
               <button
                 class="button button--danger button--compact"
                 type="button"
-                :disabled="busy || selectedNoteItemIds.length === 0"
-                @click="deleteNoteItems(selectedNoteItemIds)"
+                :disabled="busy || selectedNoteSlotKeys.length === 0"
+                @click="deleteNoteSlots(selectedNoteSlotKeys)"
               >
-                <Trash2 :size="14" /> 删除 {{ selectedNoteItemIds.length || '' }}
+                <Trash2 :size="14" /> 删除 {{ selectedNoteSlotKeys.length || '' }}
               </button>
             </div>
           </header>
@@ -1433,10 +1444,10 @@ onBeforeUnmount(() => {
                 :class="{ active: item.slot_key === selectedNoteItemId }"
               >
                 <input
-                  v-if="item.can_delete && item.item_id"
-                  v-model="selectedNoteItemIds"
+                  v-if="item.can_delete"
+                  v-model="selectedNoteSlotKeys"
                   type="checkbox"
-                  :value="item.item_id"
+                  :value="item.slot_key"
                   :aria-label="`选择 ${item.label}`"
                   :disabled="busy"
                 />
@@ -1509,12 +1520,12 @@ onBeforeUnmount(() => {
                   <Star :size="16" :fill="selectedNoteItem.is_favorite ? 'currentColor' : 'none'" />
                 </button>
                 <button
-                  v-if="selectedNoteItem.can_delete && selectedNoteItem.item_id"
+                  v-if="selectedNoteItem.can_delete"
                   class="icon-button icon-button--danger"
                   type="button"
                   aria-label="删除当前条目"
                   :disabled="busy"
-                  @click="deleteNoteItems([selectedNoteItem.item_id])"
+                  @click="deleteNoteSlots([selectedNoteItem.slot_key])"
                 >
                   <Trash2 :size="16" />
                 </button>

@@ -406,17 +406,27 @@ describe('paper store', () => {
             items: [],
           },
           deleted_item_ids: ['item-a', 'item-b'],
+          deleted_slot_keys: ['4.1', '4:item-b'],
         }),
     })
     vi.stubGlobal('fetch', fetchMock)
     const store = usePaperStore()
 
-    const result = await store.deleteNoteItems('project-id', 'paper-id', ['item-a', 'item-b'], 4, 3)
+    const result = await store.deleteNoteItems(
+      'project-id',
+      'paper-id',
+      ['item-a', 'item-b'],
+      ['4.1', '4:item-b'],
+      4,
+      3,
+    )
 
     expect(result.deleted_item_ids).toEqual(['item-a', 'item-b'])
+    expect(result.deleted_slot_keys).toEqual(['4.1', '4:item-b'])
     const request = fetchMock.mock.calls[0]?.[1] as RequestInit
     expect(JSON.parse(String(request.body))).toEqual({
       item_ids: ['item-a', 'item-b'],
+      slot_keys: ['4.1', '4:item-b'],
       expected_note_revision: 4,
       expected_paper_revision: 3,
     })

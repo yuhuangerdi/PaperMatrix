@@ -54,6 +54,7 @@ from papermatrix.services.markdown_analysis_parser import (
     parse_note_candidates,
     remove_item_anchors,
     remove_note_item_fragments,
+    remove_note_template_slots,
     replace_note_item_fragment,
     replace_note_template_slot,
 )
@@ -183,11 +184,11 @@ class PaperContentService:
             kind="innovation",
             label="创新点",
             description="可重复添加的具体创新。",
-            heading="5. 大致流程和创新点（3+1）",
+            heading="5. 大致流程和创新点",
             heading_level=2,
             repeatable=True,
             child_heading_prefix="创新点",
-            insert_before_heading="5.5 附加贡献 +1",
+            insert_before_heading="5.5 附加贡献",
             body_template=(
                 "- 针对的挑战：\n"
                 "- 做了什么：\n"
@@ -362,24 +363,6 @@ class PaperContentService:
                 4,
             ),
             (
-                "2.2.b",
-                2,
-                "related_work",
-                "代表性文献 B",
-                "第二篇代表性工作的思路、缺点及与本文关系。",
-                "文献 B",
-                4,
-            ),
-            (
-                "2.2.c",
-                2,
-                "related_work",
-                "代表性文献 C",
-                "第三篇代表性工作的思路、缺点及与本文关系。",
-                "文献 C",
-                4,
-            ),
-            (
                 "2.3",
                 2,
                 "challenge",
@@ -410,19 +393,15 @@ class PaperContentService:
                 3,
             ),
             ("4.1", 4, "challenge", "挑战 1", "需要克服的第一项难点。", "挑战 1", 3),
-            ("4.2", 4, "challenge", "挑战 2", "需要克服的第二项难点。", "挑战 2", 3),
-            ("4.3", 4, "challenge", "挑战 3", "需要克服的第三项难点。", "挑战 3", 3),
             ("5.1", 5, "method", "大致流程", "方法的主要执行步骤。", "5.1 大致流程", 3),
             ("5.2", 5, "innovation", "创新点 1", "第一项核心创新。", "5.2 创新点 1", 3),
-            ("5.3", 5, "innovation", "创新点 2", "第二项核心创新。", "5.3 创新点 2", 3),
-            ("5.4", 5, "innovation", "创新点 3", "第三项核心创新。", "5.4 创新点 3", 3),
             (
                 "5.5",
                 5,
                 "contribution",
-                "附加贡献 +1",
+                "附加贡献",
                 "数据集、系统、评价框架或重要发现。",
-                "5.5 附加贡献 +1",
+                "5.5 附加贡献",
                 3,
             ),
             (
@@ -610,7 +589,7 @@ class PaperContentService:
         projects, papers, content = self._repositories()
         projects.load(project_id)
         paper = papers.load(project_id, paper_id)
-        existing = content.load_note(project_id, paper_id)
+        existing = self._normalize_note(content.load_note(project_id, paper_id))
         if existing is not None:
             return existing
         return PaperNote(
@@ -624,7 +603,7 @@ class PaperContentService:
         """Persist a metadata-seeded template exactly once when a paper is created."""
         projects, _, content = self._repositories()
         projects.load(project_id)
-        existing = content.load_note(project_id, paper.paper_id)
+        existing = self._normalize_note(content.load_note(project_id, paper.paper_id))
         if existing is not None:
             return existing
         note = PaperNote(
@@ -648,7 +627,9 @@ class PaperContentService:
         paper = papers.load(project_id, paper_id)
         note = PaperNote(
             paper_id=paper_id,
-            markdown=self._synchronize_basic_information(markdown, paper),
+            markdown=self._synchronize_basic_information(
+                self._normalize_template_wording(markdown), paper
+            ),
             revision=expected_revision + 1,
             updated_at=datetime.now(UTC),
         )
@@ -657,7 +638,7 @@ class PaperContentService:
     def sync_note_basic_information(self, project_id: UUID, paper: Paper) -> PaperNote:
         """Keep the non-item chapter 0 projection aligned with overview metadata."""
         _, _, content = self._repositories()
-        current = content.load_note(project_id, paper.paper_id)
+        current = self._normalize_note(content.load_note(project_id, paper.paper_id))
         if current is None:
             return self.initialize_note(project_id, paper)
         markdown = self._synchronize_basic_information(current.markdown, paper)
@@ -718,7 +699,7 @@ class PaperContentService:
         projects, papers, content = self._repositories()
         projects.load(project_id)
         paper = papers.load(project_id, paper_id)
-        note = content.load_note(project_id, paper_id)
+        note = self._normalize_note(content.load_note(project_id, paper_id))
         warnings: list[str] = []
         if note is None:
             note = self.get_note(project_id, paper_id)
@@ -751,7 +732,7 @@ class PaperContentService:
         projects, papers, content = self._repositories()
         projects.load(project_id)
         paper = papers.load(project_id, paper_id)
-        persisted_note = content.load_note(project_id, paper_id)
+        persisted_note = self._normalize_note(content.load_note(project_id, paper_id))
         note = persisted_note or self.get_note(project_id, paper_id)
         candidates = parse_note_candidates(
             paper_id,
@@ -845,11 +826,13 @@ class PaperContentService:
         paper = papers.load(project_id, paper_id)
         self._check_revisions(
             paper,
-            content.load_note(project_id, paper_id),
+            self._normalize_note(content.load_note(project_id, paper_id)),
             expected_paper_revision=expected_paper_revision,
             expected_note_revision=expected_note_revision,
         )
-        note = content.load_note(project_id, paper_id) or self.get_note(project_id, paper_id)
+        note = self._normalize_note(content.load_note(project_id, paper_id)) or self.get_note(
+            project_id, paper_id
+        )
         template = next(
             (
                 item
@@ -930,7 +913,7 @@ class PaperContentService:
         projects, papers, content = self._repositories()
         projects.load(project_id)
         paper = papers.load(project_id, paper_id)
-        persisted_note = content.load_note(project_id, paper_id)
+        persisted_note = self._normalize_note(content.load_note(project_id, paper_id))
         self._check_revisions(
             paper,
             persisted_note,
@@ -1077,7 +1060,7 @@ class PaperContentService:
         projects, papers, content = self._repositories()
         projects.load(project_id)
         paper = papers.load(project_id, paper_id)
-        note = content.load_note(project_id, paper_id)
+        note = self._normalize_note(content.load_note(project_id, paper_id))
         self._check_revisions(
             paper,
             note,
@@ -1219,7 +1202,7 @@ class PaperContentService:
         )
         if existing is None:
             raise AnalysisItemNotFoundError()
-        note = content.load_note(project_id, paper_id)
+        note = self._normalize_note(content.load_note(project_id, paper_id))
         if note is None:
             raise AnalysisItemSourceError("结构化笔记尚未保存, 无法编辑条目来源。")
         if note.revision != expected_note_revision:
@@ -1363,7 +1346,7 @@ class PaperContentService:
                 expected=expected_paper_revision,
                 actual=paper.revision,
             )
-        note = content.load_note(project_id, paper_id)
+        note = self._normalize_note(content.load_note(project_id, paper_id))
         actual_note_revision = note.revision if note else 0
         if actual_note_revision != expected_note_revision:
             raise AnalysisPreviewStaleError(
@@ -1495,6 +1478,7 @@ class PaperContentService:
         paper_id: UUID,
         *,
         item_ids: list[UUID],
+        slot_keys: list[str],
         expected_note_revision: int,
         expected_paper_revision: int,
     ) -> NoteItemDeleteResult:
@@ -1507,7 +1491,7 @@ class PaperContentService:
                 expected=expected_paper_revision,
                 actual=paper.revision,
             )
-        note = content.load_note(project_id, paper_id)
+        note = self._normalize_note(content.load_note(project_id, paper_id))
         actual_note_revision = note.revision if note else 0
         if actual_note_revision != expected_note_revision:
             raise AnalysisPreviewStaleError(
@@ -1524,7 +1508,67 @@ class PaperContentService:
 
         if note is None:
             note = self.get_note(project_id, paper_id)
-        updated_markdown = remove_note_item_fragments(note.markdown, selected_ids)
+        candidates = parse_note_candidates(
+            paper_id,
+            note.markdown,
+            paper.structured_summary.items,
+        )
+        slots = self._note_slots(note, paper, candidates)
+        slots_by_key = {slot.slot_key: slot for slot in slots}
+        ordered_slot_keys = list(dict.fromkeys(slot_keys))
+        unknown_slot_keys = [
+            slot_key for slot_key in ordered_slot_keys if slot_key not in slots_by_key
+        ]
+        if unknown_slot_keys:
+            raise AnalysisCandidateSelectionError(unknown_slot_keys)
+        selected_slots = [slots_by_key[slot_key] for slot_key in ordered_slot_keys]
+        direct_slots = [slot for slot in slots if slot.item_id in selected_ids]
+        selected_repeatable_slots = {
+            slot.slot_key: slot
+            for slot in [*selected_slots, *direct_slots]
+            if slot.repeatable_template_key
+        }
+        if any(not slot.can_delete for slot in selected_repeatable_slots.values()):
+            raise AnalysisItemSourceError("每组可扩展条目至少保留一个占位。")
+        for template_key in {
+            slot.repeatable_template_key
+            for slot in selected_repeatable_slots.values()
+            if slot.repeatable_template_key
+        }:
+            group_slots = [slot for slot in slots if slot.repeatable_template_key == template_key]
+            selected_group_slots = [
+                slot
+                for slot in selected_repeatable_slots.values()
+                if slot.repeatable_template_key == template_key
+            ]
+            if len(group_slots) - len(selected_group_slots) < 1:
+                raise AnalysisItemSourceError("每组可扩展条目至少保留一个占位。")
+
+        selected_ids.update(slot.item_id for slot in selected_slots if slot.item_id is not None)
+        deleted_item_ids = list(
+            dict.fromkeys(
+                [
+                    *ordered_item_ids,
+                    *(slot.item_id for slot in selected_slots if slot.item_id is not None),
+                ]
+            )
+        )
+        selected_anchor_ids = set(selected_ids)
+        for slot in selected_slots:
+            if ":" not in slot.slot_key:
+                continue
+            try:
+                selected_anchor_ids.add(UUID(slot.slot_key.rsplit(":", 1)[1]))
+            except ValueError:
+                continue
+        updated_markdown = remove_note_item_fragments(note.markdown, selected_anchor_ids)
+        fixed_by_key = {template.template_key: template for template in self._FIXED_ITEM_TEMPLATES}
+        selected_fixed_slots: set[tuple[str, int]] = {
+            (template.heading, int(template.heading_level))
+            for slot in selected_slots
+            if (template := fixed_by_key.get(slot.template_key)) is not None
+        }
+        updated_markdown = remove_note_template_slots(updated_markdown, selected_fixed_slots)
         if updated_markdown != note.markdown:
             note = content.save_note(
                 project_id,
@@ -1553,7 +1597,8 @@ class PaperContentService:
         return NoteItemDeleteResult(
             note=note,
             analysis=self._analysis_document(paper),
-            deleted_item_ids=ordered_item_ids,
+            deleted_item_ids=deleted_item_ids,
+            deleted_slot_keys=ordered_slot_keys,
         )
 
     @staticmethod
@@ -1745,7 +1790,7 @@ class PaperContentService:
             2: "2. 现有方案分类和经典文献",
             3: "3. 本文解决思路和整体框架",
             4: "4. 需要克服的挑战或难点",
-            5: "5. 大致流程和创新点（3+1）",
+            5: "5. 大致流程和创新点",
             6: "6. 具体流程和技术细节",
             7: "7. 实验与复现性",
             8: "8. 批判性评价",
@@ -1755,14 +1800,8 @@ class PaperContentService:
         fixed_headings = {item.heading for item in self._FIXED_ITEM_TEMPLATES}
         repeatable_seed_keys = {
             "2.2.a": "2.2",
-            "2.2.b": "2.2",
-            "2.2.c": "2.2",
             "4.1": "4",
-            "4.2": "4",
-            "4.3": "4",
             "5.2": "5.innovation",
-            "5.3": "5.innovation",
-            "5.4": "5.innovation",
         }
         for template in self._FIXED_ITEM_TEMPLATES:
             candidate = self._candidate_for_template(candidates, template)
@@ -1775,6 +1814,8 @@ class PaperContentService:
             )
             heading_match = heading_pattern.search(note.markdown)
             heading_exists = heading_match is not None
+            if template.template_key in repeatable_seed_keys and not heading_exists:
+                continue
             sync_status: Literal["empty", "synced", "review_required", "missing"]
             if not heading_exists:
                 sync_status = "missing"
@@ -1810,6 +1851,7 @@ class PaperContentService:
                 ),
                 sync_status=sync_status,
                 is_favorite=existing.is_favorite if existing is not None else False,
+                repeatable=template.template_key in repeatable_seed_keys,
                 repeatable_template_key=repeatable_seed_keys.get(template.template_key),
             )
             slots.append(slot)
@@ -1852,11 +1894,26 @@ class PaperContentService:
                 is_favorite=existing.is_favorite if existing is not None else False,
                 repeatable=True,
                 repeatable_template_key=repeatable_template.template_key,
-                can_delete=existing is not None,
             )
             slots.append(slot)
             slot_positions[slot.slot_key] = candidate.source_line_start
-        return sorted(slots, key=lambda item: slot_positions[item.slot_key])
+        group_counts: dict[str, int] = {}
+        for slot in slots:
+            if slot.repeatable_template_key:
+                group_counts[slot.repeatable_template_key] = (
+                    group_counts.get(slot.repeatable_template_key, 0) + 1
+                )
+        return [
+            slot.model_copy(
+                update={
+                    "can_delete": bool(
+                        slot.repeatable_template_key
+                        and group_counts[slot.repeatable_template_key] > 1
+                    )
+                }
+            )
+            for slot in sorted(slots, key=lambda item: slot_positions[item.slot_key])
+        ]
 
     @staticmethod
     def _candidate_matches_repeatable_template(
@@ -1869,11 +1926,82 @@ class PaperContentService:
         ):
             return False
         if template.template_key == "2.2":
-            return candidate.source_section not in {"文献 A", "文献 B", "文献 C"}
+            return True
         prefix = template.child_heading_prefix
-        return bool(prefix) and candidate.source_section.startswith(
-            (f"{prefix}:", f"{prefix}\uff1a")
+        return bool(prefix) and bool(
+            re.match(
+                rf"^(?:\d+(?:\.\d+)*\s+)?{re.escape(prefix)}(?:\s+\d+|[:：])",
+                candidate.source_section,
+            )
         )
+
+    @classmethod
+    def _normalize_note(cls, note: PaperNote | None) -> PaperNote | None:
+        if note is None:
+            return None
+        markdown = cls._normalize_template_wording(note.markdown)
+        return note if markdown == note.markdown else note.model_copy(update={"markdown": markdown})
+
+    @staticmethod
+    def _normalize_template_wording(markdown: str) -> str:
+        normalized = markdown.replace(
+            "## 5. 大致流程和创新点（3+1）",
+            "## 5. 大致流程和创新点",
+        ).replace(
+            "### 5.5 附加贡献 +1",
+            "### 5.5 附加贡献",
+        )
+        legacy_empty_slots = (
+            (
+                "文献 B",
+                4,
+                "- 主要思路：\n- 主要缺点：\n- 与本文关系：",
+            ),
+            (
+                "文献 C",
+                4,
+                "- 主要思路：\n- 主要缺点：\n- 与本文关系：",
+            ),
+            (
+                "挑战 2",
+                3,
+                "- 为什么困难：\n- 现有方案为什么解决不好：\n- 本文如何处理：\n- 是否真正解决：",
+            ),
+            (
+                "挑战 3",
+                3,
+                "- 为什么困难：\n- 现有方案为什么解决不好：\n- 本文如何处理：\n- 是否真正解决：",
+            ),
+            (
+                "5.3 创新点 2",
+                3,
+                "- 针对的挑战：\n"
+                "- 做了什么：\n"
+                "- 与已有工作的区别：\n"
+                "- 为什么有效：\n"
+                "- 哪个实验验证：",
+            ),
+            (
+                "5.4 创新点 3",
+                3,
+                "- 针对的挑战：\n"
+                "- 做了什么：\n"
+                "- 与已有工作的区别：\n"
+                "- 为什么有效：\n"
+                "- 哪个实验验证：",
+            ),
+        )
+        removable = {
+            (heading, level)
+            for heading, level, placeholder in legacy_empty_slots
+            if note_template_slot_fragment(
+                normalized,
+                heading=heading,
+                heading_level=level,
+            ).strip()
+            == placeholder
+        }
+        return remove_note_template_slots(normalized, removable)
 
     @staticmethod
     def _candidate_for_template(

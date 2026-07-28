@@ -71,6 +71,42 @@ def test_note_template_save_and_revision_conflict(tmp_path: Path) -> None:
     assert "stale overwrite" not in note_path.read_text(encoding="utf-8")
 
 
+def test_legacy_quantity_labels_and_unused_seed_slots_are_normalized(tmp_path: Path) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/note"
+    initial = client.get(endpoint).json()
+    legacy = (
+        initial["markdown"]
+        .replace("## 5. 大致流程和创新点", "## 5. 大致流程和创新点（3+1）")
+        .replace("### 5.5 附加贡献", "### 5.5 附加贡献 +1")
+        .replace(
+            "### 2.3 现有方案的共同不足",
+            "#### 文献 B\n\n"
+            "- 主要思路：\n"
+            "- 主要缺点：\n"
+            "- 与本文关系：\n\n"
+            "#### 文献 C\n\n"
+            "- 主要思路：保留已有内容。\n"
+            "- 主要缺点：\n"
+            "- 与本文关系：\n\n"
+            "### 2.3 现有方案的共同不足",
+        )
+    )
+
+    saved = client.put(
+        endpoint,
+        json={"markdown": legacy, "expected_revision": initial["revision"]},
+    )
+
+    assert saved.status_code == 200
+    markdown = saved.json()["markdown"]
+    assert "3+1" not in markdown
+    assert "附加贡献 +1" not in markdown
+    assert "#### 文献 B" not in markdown
+    assert "#### 文献 C" in markdown
+    assert "保留已有内容" in markdown
+
+
 def test_template_item_creation_and_inline_evidence_registration(tmp_path: Path) -> None:
     client, _, project_id, paper_id = initialized_paper(tmp_path)
     base = f"/api/v1/projects/{project_id}/papers/{paper_id}"
@@ -84,7 +120,7 @@ def test_template_item_creation_and_inline_evidence_registration(tmp_path: Path)
         "4",
         "5.innovation",
     ]
-    assert len(document["slots"]) == 45
+    assert len(document["slots"]) == 39
     problem_slot = next(item for item in document["slots"] if item["template_key"] == "1.2")
     assert problem_slot["sync_status"] == "empty"
     assert problem_slot["markdown"] == ""
@@ -203,7 +239,7 @@ def test_challenges_and_innovations_expand_at_their_template_positions(
     challenge_body = challenge.json()
     assert challenge_body["item"]["kind"] == "challenge"
     assert "### 挑战: 跨回合状态污染" in challenge_body["note"]["markdown"]
-    assert challenge_body["note"]["markdown"].index("### 挑战 3") < challenge_body["note"][
+    assert challenge_body["note"]["markdown"].index("### 挑战 1") < challenge_body["note"][
         "markdown"
     ].index("### 挑战: 跨回合状态污染")
     assert challenge_body["note"]["markdown"].index("### 挑战: 跨回合状态污染") < challenge_body[
@@ -224,12 +260,12 @@ def test_challenges_and_innovations_expand_at_their_template_positions(
     innovation_body = innovation.json()
     assert innovation_body["item"]["kind"] == "innovation"
     assert "### 创新点: 环境反馈闭环" in innovation_body["note"]["markdown"]
-    assert innovation_body["note"]["markdown"].index("### 5.4 创新点 3") < innovation_body["note"][
+    assert innovation_body["note"]["markdown"].index("### 5.2 创新点 1") < innovation_body["note"][
         "markdown"
     ].index("### 创新点: 环境反馈闭环")
     assert innovation_body["note"]["markdown"].index("### 创新点: 环境反馈闭环") < innovation_body[
         "note"
-    ]["markdown"].index("### 5.5 附加贡献 +1")
+    ]["markdown"].index("### 5.5 附加贡献")
 
     refreshed = client.get(f"{base}/note/items").json()
     challenge_slot = next(
@@ -242,6 +278,66 @@ def test_challenges_and_innovations_expand_at_their_template_positions(
     assert challenge_slot["label"] == "跨回合状态污染"
     assert innovation_slot["template_key"] == "5.innovation"
     assert innovation_slot["label"] == "环境反馈闭环"
+
+
+def test_repeatable_groups_allow_deletion_but_keep_one_placeholder(tmp_path: Path) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    base = f"/api/v1/projects/{project_id}/papers/{paper_id}"
+
+    initial = client.get(f"{base}/note/items").json()
+    seed_slots = {
+        slot["template_key"]: slot
+        for slot in initial["slots"]
+        if slot["template_key"] in {"2.2.a", "4.1", "5.2"}
+    }
+    assert all(slot["repeatable"] is True for slot in seed_slots.values())
+    assert all(slot["can_delete"] is False for slot in seed_slots.values())
+
+    created = client.post(
+        f"{base}/note/items",
+        json={
+            "template_key": "4",
+            "title": "跨回合状态污染",
+            "markdown": "",
+            "expected_note_revision": 1,
+            "expected_paper_revision": 1,
+        },
+    ).json()
+    expanded = client.get(f"{base}/note/items").json()
+    challenge_slots = [slot for slot in expanded["slots"] if slot["repeatable_template_key"] == "4"]
+    assert len(challenge_slots) == 2
+    assert all(slot["can_delete"] is True for slot in challenge_slots)
+
+    deleted = client.post(
+        f"{base}/note/items/delete",
+        json={
+            "item_ids": [],
+            "slot_keys": ["4.1"],
+            "expected_note_revision": 2,
+            "expected_paper_revision": 2,
+        },
+    )
+    assert deleted.status_code == 200
+    deleted_body = deleted.json()
+    assert deleted_body["deleted_slot_keys"] == ["4.1"]
+    assert "### 挑战 1" not in deleted_body["note"]["markdown"]
+
+    remaining = client.get(f"{base}/note/items").json()
+    remaining_challenge = next(
+        slot for slot in remaining["slots"] if slot["repeatable_template_key"] == "4"
+    )
+    assert remaining_challenge["can_delete"] is False
+    rejected = client.post(
+        f"{base}/note/items/delete",
+        json={
+            "item_ids": [created["item"]["item_id"]],
+            "slot_keys": [remaining_challenge["slot_key"]],
+            "expected_note_revision": 3,
+            "expected_paper_revision": 3,
+        },
+    )
+    assert rejected.status_code == 422
+    assert "至少保留一个占位" in rejected.json()["error"]["message"]
 
 
 def test_clearing_fixed_slot_keeps_template_heading_and_removes_projection(

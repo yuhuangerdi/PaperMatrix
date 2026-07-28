@@ -147,3 +147,4 @@ class NoteItemDeleteResult(BaseModel):
     note: PaperNote
     analysis: PaperAnalysisDocument
     deleted_item_ids: list[UUID]
+    deleted_slot_keys: list[str] = Field(default_factory=list)

@@ -390,6 +390,7 @@ export interface NoteItemDeleteResult {
   note: PaperNote
   analysis: PaperAnalysisDocument
   deleted_item_ids: string[]
+  deleted_slot_keys: string[]
 }
 
 export type ItemLinkType =

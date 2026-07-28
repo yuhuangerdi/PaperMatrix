@@ -85,9 +85,16 @@ class EvidenceCreate(BaseModel):
 
 
 class NoteItemDeleteRequest(BaseModel):
-    item_ids: list[UUID] = Field(min_length=1)
+    item_ids: list[UUID] = Field(default_factory=list)
+    slot_keys: list[str] = Field(default_factory=list)
     expected_note_revision: int = Field(ge=0)
     expected_paper_revision: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def require_selection(self) -> NoteItemDeleteRequest:
+        if not self.item_ids and not self.slot_keys:
+            raise ValueError("至少选择一个条目")
+        return self
 
 
 class NoteItemFavoriteUpdate(BaseModel):

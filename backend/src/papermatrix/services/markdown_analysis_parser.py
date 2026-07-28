@@ -603,6 +603,30 @@ def remove_note_item_fragments(markdown: str, item_ids: set[UUID]) -> str:
     return "\n".join(lines) + suffix
 
 
+def remove_note_template_slots(
+    markdown: str,
+    slots: set[tuple[str, int]],
+) -> str:
+    """Remove fixed template heading blocks selected from a repeatable group."""
+    if not slots:
+        return markdown
+    lines = markdown.splitlines()
+    ranges: list[tuple[int, int]] = []
+    for heading, heading_level in slots:
+        location = _heading_block_range(lines, heading=heading, heading_level=heading_level)
+        if location is None:
+            continue
+        heading_index, end = location
+        start = heading_index
+        if heading_index > 0 and _ITEM_ANCHOR.fullmatch(lines[heading_index - 1].strip()):
+            start -= 1
+        ranges.append((start, end))
+    for start, end in sorted(ranges, reverse=True):
+        del lines[start:end]
+    suffix = "\n" if markdown.endswith("\n") else ""
+    return "\n".join(lines) + suffix
+
+
 def _section_identity(heading: str) -> tuple[str, str]:
     match = _SECTION_NUMBER.match(heading.strip())
     if match is None:
