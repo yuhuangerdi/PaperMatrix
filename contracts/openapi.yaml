@@ -944,6 +944,71 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ItemLinkImpact" }
+  /projects/{project_id}/analysis-scopes:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      operationId: listAnalysisScopes
+      summary: 获取可复现分析集合及缺失论文诊断
+      responses:
+        "200":
+          description: Analysis scopes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnalysisScopesViewDocument" }
+    post:
+      operationId: createAnalysisScope
+      summary: 固定保存明确论文 ID 和筛选快照
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AnalysisScopeInput" }
+      responses:
+        "201":
+          description: Created scope
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnalysisScopesViewDocument" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+        "422": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/analysis-scopes/{scope_id}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - in: path
+        name: scope_id
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updateAnalysisScope
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AnalysisScopeUpdate" }
+      responses:
+        "200":
+          description: Updated scope
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnalysisScopesViewDocument" }
+    delete:
+      operationId: deleteAnalysisScope
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expected_revision]
+              properties:
+                expected_revision: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Remaining scopes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnalysisScopesViewDocument" }
   /projects/{project_id}/research-gaps:
     parameters:
       - $ref: "#/components/parameters/ProjectId"
@@ -1525,6 +1590,84 @@ components:
           extends,
           related_to,
         ]
+    AnalysisScope:
+      type: object
+      required:
+        [
+          scope_id,
+          name,
+          purpose,
+          paper_ids,
+          source_filter_snapshot,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        scope_id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        purpose: { type: string, maxLength: 5000 }
+        paper_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        source_filter_snapshot:
+          type: object
+          additionalProperties: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AnalysisScopesDocument:
+      type: object
+      required: [schema_version, project_id, revision, updated_at, scopes]
+      properties:
+        schema_version: { type: integer, const: 1 }
+        project_id: { type: string, format: uuid }
+        revision: { type: integer, minimum: 0 }
+        updated_at: { type: string, format: date-time }
+        scopes:
+          type: array
+          items: { $ref: "#/components/schemas/AnalysisScope" }
+    AnalysisScopeView:
+      type: object
+      required: [scope, available_paper_ids, missing_paper_ids]
+      properties:
+        scope: { $ref: "#/components/schemas/AnalysisScope" }
+        available_paper_ids:
+          type: array
+          items: { type: string, format: uuid }
+        missing_paper_ids:
+          type: array
+          items: { type: string, format: uuid }
+    AnalysisScopesViewDocument:
+      type: object
+      required: [document, scopes]
+      properties:
+        document: { $ref: "#/components/schemas/AnalysisScopesDocument" }
+        scopes:
+          type: array
+          items: { $ref: "#/components/schemas/AnalysisScopeView" }
+    AnalysisScopeInput:
+      type: object
+      required:
+        [name, purpose, paper_ids, source_filter_snapshot, expected_revision]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        purpose: { type: string, maxLength: 5000 }
+        paper_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        source_filter_snapshot:
+          type: object
+          additionalProperties: { type: string }
+        expected_revision: { type: integer, minimum: 0 }
+    AnalysisScopeUpdate:
+      allOf:
+        - $ref: "#/components/schemas/AnalysisScopeInput"
+        - type: object
+          properties:
+            expected_revision: { type: integer, minimum: 1 }
     AnalysisItem:
       type: object
       required:

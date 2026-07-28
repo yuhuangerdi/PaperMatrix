@@ -158,6 +158,27 @@ class ItemReferenceNotFoundError(PaperMatrixError):
         )
 
 
+class AnalysisScopeNotFoundError(PaperMatrixError):
+    def __init__(self) -> None:
+        super().__init__(
+            "PM-SCOPE-001",
+            "分析集合不存在。",
+            status_code=404,
+            action="请刷新分析集合后重试。",
+        )
+
+
+class AnalysisScopePaperError(PaperMatrixError):
+    def __init__(self, paper_ids: list[str]) -> None:
+        super().__init__(
+            "PM-SCOPE-002",
+            "分析集合包含不属于当前项目的论文。",
+            status_code=422,
+            action="请重新选择当前项目中的论文。",
+            details={"paper_ids": paper_ids},
+        )
+
+
 class ProjectNotFoundError(PaperMatrixError):
     def __init__(self) -> None:
         super().__init__(

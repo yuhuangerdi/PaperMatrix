@@ -372,6 +372,86 @@ a.item-link-endpoint:hover strong {
   line-height: 1.5;
 }
 
+.scope-strip {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 14px;
+  background: #edf5f2;
+  border: 1px solid #cfe0da;
+  border-radius: 6px;
+}
+
+.scope-strip > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.scope-strip > div {
+  display: flex;
+  gap: 9px;
+  overflow-x: auto;
+}
+
+.scope-strip article {
+  min-width: 220px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 10px;
+  padding: 10px 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.scope-strip article strong,
+.scope-strip article small {
+  grid-column: 1 / -1;
+}
+
+.scope-strip article span,
+.scope-strip article small {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.scope-strip .scope-missing {
+  color: var(--amber);
+  font-weight: 700;
+}
+
+.selection-cell {
+  width: 38px;
+  text-align: center;
+}
+
+.selection-cell input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--teal);
+}
+
+.scope-snapshot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 14px;
+  padding: 12px;
+  color: var(--ink-soft);
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.scope-snapshot strong {
+  width: 100%;
+  color: var(--ink);
+}
+
 @media (max-width: 900px) {
   .item-link-composer {
     grid-template-columns: 1fr;

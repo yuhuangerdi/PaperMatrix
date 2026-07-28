@@ -194,6 +194,8 @@ Markdown 正文遵循 `templates/paper-note-template.md`。保存时不应重排
 
 保存时固定解析出的论文 ID 以保证可复现。论文记录消失后保留缺失 ID，不自动改变分析范围。
 
+运行时 schema v1 使用 `analyses/scopes.yaml`，包含文档级 `project_id`、`revision`、`updated_at` 与 `scopes[]`。集合创建或修改时只接受当前项目内存在的论文；之后论文记录缺失时，读取视图分别返回可用和缺失 ID，权威文件保持原样。首次读取缺失文件返回 revision 0 的空文档，首次保存写为 revision 1。
+
 ## 7. taxonomies.yaml（阶段 4）
 
 保存用户维护的方法/问题分类及论文归类：

@@ -13,20 +13,29 @@ import {
   Search,
   Trash2,
   Upload,
+  Layers3,
   X,
 } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 
 import { ApiError } from '@/api/client'
+import { useAnalysisScopeStore } from '@/stores/analysisScopes'
 import { usePaperStore } from '@/stores/papers'
 import { useProjectStore } from '@/stores/projects'
-import type { InvalidPaperRecord, Paper, PaperSourceStatus, PaperSummary } from '@/types/api'
+import type {
+  AnalysisScopesViewDocument,
+  InvalidPaperRecord,
+  Paper,
+  PaperSourceStatus,
+  PaperSummary,
+} from '@/types/api'
 
 type ImportMode = 'upload' | 'path' | 'scan' | 'manual'
 
 const route = useRoute()
 const paperStore = usePaperStore()
+const analysisScopeStore = useAnalysisScopeStore()
 const projectStore = useProjectStore()
 const projectId = computed(() => String(route.params.projectId))
 const query = ref('')
@@ -61,6 +70,10 @@ const uploadFile = ref<File | null>(null)
 const scanDirectory = ref('')
 const recursive = ref(false)
 const selectedCandidates = ref<string[]>([])
+const selectedPaperIds = ref<string[]>([])
+const scopes = ref<AnalysisScopesViewDocument | null>(null)
+const scopeOpen = ref(false)
+const scopeForm = ref({ name: '', purpose: '' })
 const visibleColumns = ref({
   source: true,
   group: true,
@@ -92,6 +105,11 @@ const submitImportLabel = computed(() => {
   if (importMode.value === 'scan' && !paperStore.scanResult) return '扫描目录'
   return '添加记录'
 })
+const allVisibleSelected = computed(
+  () =>
+    paperStore.items.length > 0 &&
+    paperStore.items.every((paper) => selectedPaperIds.value.includes(paper.paper_id)),
+)
 
 function sourceLabel(status: PaperSourceStatus) {
   return {
@@ -131,8 +149,58 @@ async function load() {
       group: groupFilter.value,
       sort: sort.value,
     })
+    const available = new Set(paperStore.items.map((paper) => paper.paper_id))
+    selectedPaperIds.value = selectedPaperIds.value.filter((paperId) => available.has(paperId))
   } catch (error: unknown) {
     errorMessage.value = error instanceof ApiError ? error.message : '无法加载论文记录。'
+  }
+}
+
+function toggleVisibleSelection() {
+  if (allVisibleSelected.value) {
+    const visible = new Set(paperStore.items.map((paper) => paper.paper_id))
+    selectedPaperIds.value = selectedPaperIds.value.filter((paperId) => !visible.has(paperId))
+  } else {
+    selectedPaperIds.value = [
+      ...new Set([...selectedPaperIds.value, ...paperStore.items.map((paper) => paper.paper_id)]),
+    ]
+  }
+}
+
+function openScopeCreate() {
+  scopeForm.value = {
+    name: query.value.trim() || groupFilter.value || '当前论文集合',
+    purpose: '',
+  }
+  scopeOpen.value = true
+}
+
+async function createScope() {
+  if (!scopes.value || !scopeForm.value.name.trim() || !selectedPaperIds.value.length) return
+  busy.value = true
+  errorMessage.value = ''
+  try {
+    scopes.value = await analysisScopeStore.create(
+      projectId.value,
+      {
+        name: scopeForm.value.name,
+        purpose: scopeForm.value.purpose,
+        paper_ids: selectedPaperIds.value,
+        source_filter_snapshot: {
+          q: query.value,
+          source_status: sourceStatus.value,
+          group: groupFilter.value,
+          sort: sort.value,
+        },
+      },
+      scopes.value.document.revision,
+    )
+    scopeOpen.value = false
+    successMessage.value = `已固定保存 ${selectedPaperIds.value.length} 篇论文的分析集合。`
+  } catch (error: unknown) {
+    errorMessage.value = error instanceof ApiError ? error.message : '创建分析集合失败。'
+  } finally {
+    busy.value = false
   }
 }
 
@@ -297,7 +365,13 @@ watch(importMode, () => {
   successMessage.value = ''
 })
 onMounted(() => {
-  void Promise.all([projectStore.load(projectId.value), load()])
+  void Promise.all([
+    projectStore.load(projectId.value),
+    load(),
+    analysisScopeStore.list(projectId.value).then((result) => {
+      scopes.value = result
+    }),
+  ])
 })
 </script>
 
@@ -311,9 +385,20 @@ onMounted(() => {
       <h1>{{ project?.name || '论文记录' }}</h1>
       <p>记录是知识库主体；PDF 可以正常关联、暂时缺失，也可以稍后再关联。</p>
     </div>
-    <button class="button button--primary" type="button" @click="importOpen = true">
-      <Plus :size="17" /> 添加论文
-    </button>
+    <div class="page-heading-actions">
+      <button
+        class="button button--secondary"
+        type="button"
+        :disabled="selectedPaperIds.length === 0"
+        @click="openScopeCreate"
+      >
+        <Layers3 :size="17" /> 保存分析集合
+        <span v-if="selectedPaperIds.length">（{{ selectedPaperIds.length }}）</span>
+      </button>
+      <button class="button button--primary" type="button" @click="importOpen = true">
+        <Plus :size="17" /> 添加论文
+      </button>
+    </div>
   </section>
 
   <div class="paper-toolbar">
@@ -365,6 +450,23 @@ onMounted(() => {
   <div v-if="successMessage" class="form-message form-message--success" role="status">
     {{ successMessage }}
   </div>
+
+  <section v-if="scopes?.scopes.length" class="scope-strip" aria-label="已保存分析集合">
+    <header>
+      <strong>已保存分析集合</strong>
+      <span>{{ scopes.scopes.length }} 个可复现范围</span>
+    </header>
+    <div>
+      <article v-for="view in scopes.scopes" :key="view.scope.scope_id">
+        <strong>{{ view.scope.name }}</strong>
+        <span>{{ view.available_paper_ids.length }} 篇可用</span>
+        <span v-if="view.missing_paper_ids.length" class="scope-missing">
+          {{ view.missing_paper_ids.length }} 篇缺失
+        </span>
+        <small>{{ view.scope.purpose || '尚未填写用途' }}</small>
+      </article>
+    </div>
+  </section>
 
   <section
     v-if="paperStore.invalidItems.length"
@@ -444,6 +546,14 @@ onMounted(() => {
     <table class="paper-table">
       <thead>
         <tr>
+          <th class="selection-cell">
+            <input
+              type="checkbox"
+              :checked="allVisibleSelected"
+              aria-label="选择当前列表全部论文"
+              @change="toggleVisibleSelection"
+            />
+          </th>
           <th>论文</th>
           <th v-if="visibleColumns.source">来源</th>
           <th v-if="visibleColumns.group">分组</th>
@@ -457,6 +567,14 @@ onMounted(() => {
       </thead>
       <tbody>
         <tr v-for="paper in paperStore.items" :key="paper.paper_id">
+          <td class="selection-cell">
+            <input
+              v-model="selectedPaperIds"
+              type="checkbox"
+              :value="paper.paper_id"
+              :aria-label="`选择 ${paper.title}`"
+            />
+          </td>
           <td>
             <RouterLink
               class="paper-title-link"
@@ -628,6 +746,56 @@ onMounted(() => {
             @click="submitImport"
           >
             {{ submitImportLabel }}
+          </button>
+        </div>
+      </footer>
+    </section>
+  </div>
+
+  <div v-if="scopeOpen" class="modal-backdrop">
+    <section class="import-dialog import-dialog--small" role="dialog" aria-modal="true">
+      <header>
+        <div>
+          <p class="eyebrow">固定分析范围</p>
+          <h2>保存 {{ selectedPaperIds.length }} 篇论文</h2>
+        </div>
+        <button class="icon-button" type="button" aria-label="关闭" @click="scopeOpen = false">
+          <X :size="20" />
+        </button>
+      </header>
+      <div class="metadata-form">
+        <label class="field metadata-field--wide">
+          <span>集合名称</span>
+          <input v-model="scopeForm.name" type="text" maxlength="120" />
+        </label>
+        <label class="field metadata-field--wide">
+          <span>分析目的</span>
+          <textarea
+            v-model="scopeForm.purpose"
+            maxlength="5000"
+            placeholder="例如：比较长链任务规划方法与实验口径。"
+          />
+        </label>
+      </div>
+      <div class="scope-snapshot">
+        <strong>筛选快照</strong>
+        <span>搜索：{{ query || '无' }}</span>
+        <span>来源：{{ sourceStatus || '全部' }}</span>
+        <span>分组：{{ groupFilter || '全部' }}</span>
+      </div>
+      <footer>
+        <span>保存后固定论文 ID；后续筛选变化不会改写此集合。</span>
+        <div>
+          <button class="button button--secondary" type="button" @click="scopeOpen = false">
+            取消
+          </button>
+          <button
+            class="button button--primary"
+            type="button"
+            :disabled="busy || !scopeForm.name.trim()"
+            @click="createScope"
+          >
+            保存集合
           </button>
         </div>
       </footer>

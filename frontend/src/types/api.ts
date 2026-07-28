@@ -464,6 +464,35 @@ export interface ItemLinkImpact {
   affected_links: ItemLinkView[]
 }
 
+export interface AnalysisScope {
+  scope_id: string
+  name: string
+  purpose: string
+  paper_ids: string[]
+  source_filter_snapshot: Record<string, string>
+  created_at: string
+  updated_at: string
+}
+
+export interface AnalysisScopesDocument {
+  schema_version: 1
+  project_id: string
+  revision: number
+  updated_at: string
+  scopes: AnalysisScope[]
+}
+
+export interface AnalysisScopeView {
+  scope: AnalysisScope
+  available_paper_ids: string[]
+  missing_paper_ids: string[]
+}
+
+export interface AnalysisScopesViewDocument {
+  document: AnalysisScopesDocument
+  scopes: AnalysisScopeView[]
+}
+
 export interface ScanCandidate {
   candidate_id: string
   display_path: string

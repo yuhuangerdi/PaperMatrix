@@ -136,6 +136,8 @@
 
 条目关系已实现项目条目目录、稳定位置解析、CRUD、删除影响检查和端点诊断。新建关系只接受当前项目中仍存在的条目；读取既有关系时保留缺失端点并返回 `missing_paper` 或 `missing_item`，不得在诊断过程中改写权威文件。
 
+分析集合已实现 `GET/POST /projects/{project_id}/analysis-scopes` 与按 `scope_id` 的更新、删除。写接口保存明确论文 ID 与 `source_filter_snapshot`；读取响应附加可用/缺失论文 ID，但不把诊断结果写回 `scopes.yaml`。
+
 问题归纳写接口必须分别接收方法条目和解决程度/理由，不得把自由显示文本当成唯一来源；所有目标 paper/item ID 必须限定在当前项目内。
 
 目标资源：
