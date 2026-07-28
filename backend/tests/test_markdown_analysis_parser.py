@@ -17,7 +17,7 @@ PAPER_ID = UUID("11111111-1111-4111-8111-111111111111")
 
 
 def test_parses_filled_sections_tables_and_evidence_deterministically() -> None:
-    markdown = """# Example
+    base_markdown = """# Example
 
 ## 1. 背景
 ### 1.2 具体问题
@@ -29,6 +29,7 @@ def test_parses_filled_sections_tables_and_evidence_deterministically() -> None:
 |---|---|---|---|---|
 | 恢复规划器 | 失败反馈 | 重建计划 | 新动作 | 降低失败率 |
 | 模块 B |  |  |  |  |
+- 证据：E-001
 
 ## 4. 需要克服的挑战或难点
 ### 挑战 1
@@ -41,9 +42,12 @@ def test_parses_filled_sections_tables_and_evidence_deterministically() -> None:
 |---|---|---|---|
 | 主实验 | 恢复成功率提升 | +12% | 表 3 |
 | 消融实验 |  |  |  |
+- 证据：E-002
+"""
+    markdown = f"""{base_markdown}
 
-## 11. 关键引用、页码与证据
-| 条目 ID | 类型 | 观点或证据 | 印刷页码 | PDF 页序号 | 图/表 | 备注 |
+## 11. 关键证据与页码定位
+| 证据 ID | 类型 | 观点或证据 | 印刷页码 | PDF 页序号 | 图/表 | 备注 |
 |---|---|---|---|---:|---|---|
 | E-001 | 方法 | 恢复规划器结构 | 6 | 7 | 图 2 | 架构图 |
 | E-002 | 结果 | 成功率提升 | 9 | 10 | 表 3 | 主结果 |
@@ -61,6 +65,7 @@ def test_parses_filled_sections_tables_and_evidence_deterministically() -> None:
     assert first[1].title == "框架组成"
     assert "处理过程: 重建计划" in first[1].attributes["恢复规划器"]
     assert first[1].evidence_refs[0].page_label == "6"
+    assert first[1].evidence_refs[0].evidence_code == "E-001"
     assert first[3].evidence_refs[0].table == "表 3"
     assert first[3].title == "主要实验结果"
     assert "关键数据: +12%" in first[3].attributes["主实验"]
@@ -133,8 +138,8 @@ def test_keeps_prose_containing_markdown_urls_out_of_structured_attributes() -> 
 ### 1.1 研究背景
 传统自动化工具难以替代专家的上下文理解。（[usenix.org](https://www.usenix.org/conference/usenixsecurity24/presentation/deng?utm_source=openai)）
 
-## 11. 关键引用、页码与证据
-| 条目 ID | 类型 | 观点或证据 | 印刷页码 | PDF 页序号 | 图/表 | 备注 |
+## 11. 关键证据与页码定位
+| 证据 ID | 类型 | 观点或证据 | 印刷页码 | PDF 页序号 | 图/表 | 备注 |
 |---|---|---|---|---:|---|---|
 | E-001 | 背景 | 工具需要上下文理解 | 待核对 | 待回看 PDF | 待补充 | 待核对 |
 """
@@ -143,8 +148,42 @@ def test_keeps_prose_containing_markdown_urls_out_of_structured_attributes() -> 
 
     assert candidate.attributes == {}
     assert candidate.summary.startswith("传统自动化工具难以替代专家")
-    assert candidate.evidence_refs[0].page_label is None
-    assert candidate.evidence_refs[0].pdf_page_index is None
+    assert candidate.evidence_refs == []
+
+
+def test_evidence_is_not_attached_without_an_explicit_evidence_code_reference() -> None:
+    markdown = """## 1. 背景
+### 1.1 研究背景
+工具需要环境上下文。
+
+## 11. 关键证据与页码定位
+| 证据 ID | 类型 | 观点或证据 | 印刷页码 | PDF 页序号 | 图/表 | 备注 |
+|---|---|---|---|---:|---|---|
+| E-001 | 背景 | 未明确引用时不得自动绑定 | 4 | 5 | 图 1 | 不应自动绑定 |
+"""
+
+    candidate = parse_note_candidates(PAPER_ID, markdown, [])[0]
+
+    assert candidate.kind == "background"
+    assert candidate.evidence_refs == []
+
+
+def test_candidate_uses_explicit_evidence_code_from_a_legacy_heading() -> None:
+    markdown = """## 1. 背景
+### 1.1 研究背景
+工具需要环境上下文。
+- 证据：E-001
+
+## 11. 关键引用、页码与证据
+| 证据 ID | 类型 | 观点或证据 | 印刷页码 | PDF 页序号 | 图/表 | 备注 |
+|---|---|---|---|---:|---|---|
+| E-001 | 背景 | 明确关联仍可读取 | 4 | 5 | 图 1 | 兼容旧标题 |
+"""
+
+    candidate = parse_note_candidates(PAPER_ID, markdown, [])[0]
+
+    assert len(candidate.evidence_refs) == 1
+    assert candidate.evidence_refs[0].evidence_code == "E-001"
 
 
 def test_keeps_structured_fields_out_of_the_plain_summary() -> None:
@@ -301,7 +340,7 @@ def test_markdown_reparse_keeps_the_same_identity_for_a_favorited_item() -> None
         source_note_revision=1,
         source_fingerprint=candidate.source_fingerprint,
         attributes=candidate.attributes,
-        evidence_refs=[],
+        evidence_ids=[],
         tags=[],
         writing_uses=[],
         is_favorite=True,
@@ -358,13 +397,17 @@ def test_parses_all_filled_semantic_blocks_and_keeps_each_table_together() -> No
         "研究背景",
         "为什么重要",
         "现有方法分类",
-        "代表性顶会顶刊文献（3–5篇）",
+        "文献 A",
+        "文献 B",
+        "文献 C",
         "主要实验结果",
     ]
     assert [candidate.kind for candidate in candidates] == [
         "background",
         "background",
         "method",
+        "related_work",
+        "related_work",
         "related_work",
         "finding",
     ]
@@ -373,18 +416,17 @@ def test_parses_all_filled_semantic_blocks_and_keeps_each_table_together() -> No
     assert table.source_line_end - table.source_line_start == 5
     related_work = candidates[3]
     assert related_work.attributes == {
-        "文献 A": "主要思路：使用规划器维护任务。; 主要缺点：缺少状态验证。",
-        "文献 B": "主要思路：压缩工具输出。; 主要缺点：可能丢失关键细节。",
-        "文献 C": "主要思路：检索领域知识。; 主要缺点：依赖检索质量。",
+        "主要思路": "使用规划器维护任务。",
+        "主要缺点": "缺少状态验证。",
     }
-    assert related_work.source_section == "2.2 代表性顶会顶刊文献（3–5篇）"
+    assert related_work.source_section == "文献 A"
     result = candidates[-1]
     assert result.attributes.keys() == {"主实验"}
     assert "228.6% 是相对提升，不是绝对成功率。" in result.summary
     assert "效率/成本实验" not in result.summary
 
 
-def test_representative_work_parent_consolidates_legacy_child_items() -> None:
+def test_representative_work_children_remain_independent_items() -> None:
     item_a = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
     item_b = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
     now = datetime.now(UTC)
@@ -421,10 +463,13 @@ def test_representative_work_parent_consolidates_legacy_child_items() -> None:
     candidates = parse_note_candidates(PAPER_ID, markdown, existing)
 
     assert [candidate.title for candidate in candidates] == [
-        "代表性顶会顶刊文献（3–5篇）",
+        "文献 A",
+        "文献 B",
         "现有方案的共同不足",
     ]
-    assert candidates[0].superseded_item_ids == [item_a, item_b]
+    assert [candidate.candidate_id for candidate in candidates[:2]] == [item_a, item_b]
+    assert candidates[0].superseded_item_ids == []
+    assert candidates[1].superseded_item_ids == []
 
 
 def test_removes_complete_anchored_heading_fragments_without_removing_siblings() -> None:

@@ -25,7 +25,7 @@ def test_migrates_v1_source_and_optional_bibliography_fields() -> None:
         }
     )
 
-    assert migrated["schema_version"] == 8
+    assert migrated["schema_version"] == 11
     assert migrated["source"]["original_filename"] == "example.pdf"
     assert migrated["source"]["sha256"] is None
     assert migrated["bibliography"]["doi"] is None
@@ -105,6 +105,7 @@ def test_repository_saves_an_edited_v2_record_as_current_schema(tmp_path: Path) 
     saved = repository.save(
         migrated.update_basic_information(
             title="Legacy paper",
+            short_title="",
             authors=[],
             affiliations=["Example University"],
             venue="Example Journal",
@@ -114,12 +115,18 @@ def test_repository_saves_an_edited_v2_record_as_current_schema(tmp_path: Path) 
             language="English",
             keywords=[],
             abstract_text="",
+            urls=[],
+            code_url=None,
+            data_url=None,
             group="核心文献",
+            reading_status="unread",
+            importance_score=None,
+            one_sentence_summary="",
         ),
         expected_revision=1,
     )
 
-    assert saved.schema_version == 8
+    assert saved.schema_version == 11
     assert repository.load(project_id, paper_id).organization.group == "核心文献"
 
 
@@ -140,7 +147,7 @@ def test_migrates_v3_analysis_without_losing_legacy_summary() -> None:
         }
     )
 
-    assert migrated["schema_version"] == 8
+    assert migrated["schema_version"] == 11
     assert migrated["structured_summary"]["background"] == {"problem": "Legacy problem"}
     assert migrated["structured_summary"]["items"] == []
 
@@ -162,7 +169,7 @@ def test_migrates_v4_items_with_empty_note_source_metadata() -> None:
     )
 
     item = migrated["structured_summary"]["items"][0]
-    assert migrated["schema_version"] == 8
+    assert migrated["schema_version"] == 11
     assert item["title"] == "Legacy method"
     assert item["section_key"] is None
     assert item["source_note_revision"] is None
@@ -185,12 +192,12 @@ def test_migrates_v5_item_source_without_losing_anchor() -> None:
     )
 
     item = migrated["structured_summary"]["items"][0]
-    assert migrated["schema_version"] == 8
+    assert migrated["schema_version"] == 11
     assert item["source_anchor"].endswith("11111111-1111-4111-8111-111111111111")
     assert item["source_fingerprint"] is None
 
 
-def test_migrates_v7_to_v8_with_a_safe_default_favorite_state() -> None:
+def test_migrates_v7_to_v10_with_safe_favorite_and_display_label_defaults() -> None:
     source = {
         "schema_version": 7,
         "structured_summary": {
@@ -209,9 +216,69 @@ def test_migrates_v7_to_v8_with_a_safe_default_favorite_state() -> None:
     migrated = migrate_paper(source)
 
     assert source["schema_version"] == 7
-    assert migrated["schema_version"] == 8
+    assert migrated["schema_version"] == 11
     item = migrated["structured_summary"]["items"][0]
     assert item["kind"] == "method"
     assert item["title"] == "Existing method"
     assert item["source_fingerprint"] == "a" * 64
     assert item["is_favorite"] is False
+    assert item["display_label"] is None
+
+
+def test_migrates_v8_to_v10_with_a_safe_default_display_label() -> None:
+    source = {
+        "schema_version": 8,
+        "structured_summary": {
+            "items": [
+                {
+                    "item_id": "11111111-1111-4111-8111-111111111111",
+                    "kind": "method",
+                    "title": "Existing method",
+                    "is_favorite": True,
+                }
+            ]
+        },
+    }
+
+    migrated = migrate_paper(source)
+
+    assert source["schema_version"] == 8
+    assert migrated["schema_version"] == 11
+    assert migrated["structured_summary"]["items"][0]["is_favorite"] is True
+    assert migrated["structured_summary"]["items"][0]["display_label"] is None
+
+
+def test_migrates_v9_item_evidence_into_the_catalog() -> None:
+    source = {
+        "schema_version": 9,
+        "structured_summary": {
+            "items": [
+                {
+                    "item_id": "11111111-1111-4111-8111-111111111111",
+                    "kind": "method",
+                    "title": "Existing method",
+                    "evidence_refs": [
+                        {
+                            "evidence_id": "22222222-2222-4222-8222-222222222222",
+                            "paper_id": "33333333-3333-4333-8333-333333333333",
+                            "page_label": "6",
+                            "pdf_page_index": 7,
+                            "section": "Method",
+                            "figure": None,
+                            "table": "Table 2",
+                            "locator_note": "Architecture overview",
+                        }
+                    ],
+                }
+            ]
+        },
+    }
+
+    migrated = migrate_paper(source)
+
+    assert migrated["schema_version"] == 11
+    assert migrated["structured_summary"]["items"][0]["evidence_ids"] == [
+        "22222222-2222-4222-8222-222222222222"
+    ]
+    assert migrated["structured_summary"]["evidence_catalog"][0]["evidence_code"] == "E-001"
+    assert "source_item_id" not in migrated["structured_summary"]["evidence_catalog"][0]

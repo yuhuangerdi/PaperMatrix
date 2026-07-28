@@ -248,10 +248,10 @@ describe('paper store', () => {
       'paper-id',
       {
         kind: 'method',
+        display_label: '恢复机制',
         title: 'Evidence-guided planning',
         summary: 'Links decisions to observations.',
         attributes: { architecture: 'planner-executor' },
-        evidence_refs: [],
         tags: ['agent'],
         writing_uses: ['METHOD'],
       },
@@ -262,6 +262,7 @@ describe('paper store', () => {
     expect(request.method).toBe('POST')
     expect(JSON.parse(String(request.body))).toMatchObject({
       kind: 'method',
+      display_label: '恢复机制',
       expected_revision: 1,
     })
   })
@@ -418,6 +419,83 @@ describe('paper store', () => {
       item_ids: ['item-a', 'item-b'],
       expected_note_revision: 4,
       expected_paper_revision: 3,
+    })
+  })
+
+  it('fills a fixed template slot, adds a repeatable literature item, and registers evidence', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ slot: { template_key: '1.2' } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: () => Promise.resolve({ item: { item_id: 'item-id' } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: () => Promise.resolve({ evidence: { evidence_code: 'E-001' } }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = usePaperStore()
+
+    await store.updateNoteSlot('project-id', 'paper-id', '1.2', '长任务会累积状态误差。', 4, 3)
+    await store.createNoteItem(
+      'project-id',
+      'paper-id',
+      {
+        template_key: '2.2',
+        title: 'PentestGPT',
+        markdown: '以推理模块指导渗透步骤。',
+      },
+      5,
+      4,
+    )
+    await store.createEvidence(
+      'project-id',
+      'paper-id',
+      {
+        item_id: 'item-id',
+        evidence_type: '问题定义',
+        page_label: '4',
+        pdf_page_index: 5,
+        section: '2.1',
+        figure: null,
+        table: null,
+        locator_note: '作者说明了状态误差。',
+      },
+      6,
+      5,
+    )
+
+    expect(JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body))).toEqual({
+      markdown: '长任务会累积状态误差。',
+      expected_note_revision: 4,
+      expected_paper_revision: 3,
+    })
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/note/slots/1.2')
+    expect(JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit).body))).toEqual({
+      template_key: '2.2',
+      title: 'PentestGPT',
+      markdown: '以推理模块指导渗透步骤。',
+      expected_note_revision: 5,
+      expected_paper_revision: 4,
+    })
+    expect(JSON.parse(String((fetchMock.mock.calls[2]?.[1] as RequestInit).body))).toEqual({
+      item_id: 'item-id',
+      evidence_type: '问题定义',
+      page_label: '4',
+      pdf_page_index: 5,
+      section: '2.1',
+      figure: null,
+      table: null,
+      locator_note: '作者说明了状态误差。',
+      expected_note_revision: 6,
+      expected_paper_revision: 5,
     })
   })
 })

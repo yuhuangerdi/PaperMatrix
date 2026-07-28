@@ -19,6 +19,7 @@ from papermatrix.core.atomic_io import (
 from papermatrix.core.errors import FileContentError
 from papermatrix.core.schema_registry import SchemaRegistry
 from papermatrix.domain.paper_content import PaperNote, QuestionsDocument
+from papermatrix.domain.question_migrations import migrate_questions
 
 
 class _NoteFrontMatter(BaseModel):
@@ -81,7 +82,8 @@ class PaperContentRepository:
         path = self._questions_file(project_id, paper_id)
         if not path.is_file():
             return QuestionsDocument.empty(paper_id)
-        data = read_yaml(path, lambda value: self._schemas.validate("questions", value))
+        data = migrate_questions(read_yaml(path))
+        self._schemas.validate("questions", data)
         document = QuestionsDocument.model_validate(data)
         if document.paper_id != paper_id:
             raise FileContentError(
@@ -100,7 +102,7 @@ class PaperContentRepository:
         atomic_write_yaml(
             self._questions_file(project_id, document.paper_id),
             document.model_dump(mode="json"),
-            validator=lambda value: self._schemas.validate("questions", value),
+            validator=lambda value: self._schemas.validate("questions", migrate_questions(value)),
             expected_revision=expected_revision,
         )
         return document
@@ -162,7 +164,7 @@ class PaperContentRepository:
             "paper_id": str(note.paper_id),
             "revision": note.revision,
             "updated_at": note.updated_at.isoformat().replace("+00:00", "Z"),
-            "template_version": 1,
+            "template_version": 2,
         }
         yaml_text = yaml.safe_dump(front_matter, allow_unicode=True, sort_keys=False).strip()
         return f"---\n{yaml_text}\n---\n\n{note.markdown.rstrip()}\n"

@@ -93,6 +93,7 @@ class Organization(BaseModel):
 class AnalysisItem(BaseModel):
     item_id: UUID = Field(default_factory=uuid4)
     kind: AnalysisItemKind
+    display_label: str | None = Field(default=None, max_length=80)
     title: str = Field(min_length=1, max_length=300)
     summary: str = Field(default="", max_length=20000)
     section_key: str | None = Field(default=None, max_length=40)
@@ -102,7 +103,7 @@ class AnalysisItem(BaseModel):
     source_note_revision: int | None = Field(default=None, ge=1)
     source_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     attributes: dict[str, str] = Field(default_factory=dict)
-    evidence_refs: list[EvidenceReference] = Field(default_factory=list)
+    evidence_ids: list[UUID] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     writing_uses: list[WritingUse] = Field(default_factory=list)
     is_favorite: bool = False
@@ -114,20 +115,24 @@ class AnalysisItem(BaseModel):
         cls,
         *,
         kind: AnalysisItemKind,
+        display_label: str | None,
         title: str,
         summary: str,
         attributes: dict[str, str],
-        evidence_refs: list[EvidenceReference],
+        evidence_ids: list[UUID],
         tags: list[str],
         writing_uses: list[WritingUse],
     ) -> AnalysisItem:
         now = datetime.now(UTC)
         return cls(
             kind=kind,
+            display_label=(
+                display_label.strip() if display_label and display_label.strip() else None
+            ),
             title=title.strip(),
             summary=summary.strip(),
             attributes=attributes,
-            evidence_refs=evidence_refs,
+            evidence_ids=list(dict.fromkeys(evidence_ids)),
             tags=tags,
             writing_uses=writing_uses,
             created_at=now,
@@ -144,11 +149,12 @@ class StructuredSummary(BaseModel):
     additional_contribution: dict[str, object] = Field(default_factory=dict)
     experiment: dict[str, object] = Field(default_factory=dict)
     evaluation: dict[str, object] = Field(default_factory=dict)
+    evidence_catalog: list[EvidenceReference] = Field(default_factory=list)
     items: list[AnalysisItem] = Field(default_factory=list)
 
 
 class Paper(BaseModel):
-    schema_version: Literal[8] = 8
+    schema_version: Literal[11] = 11
     paper_id: UUID
     project_id: UUID
     source: PaperSource
@@ -192,6 +198,7 @@ class Paper(BaseModel):
         self,
         *,
         title: str,
+        short_title: str,
         authors: list[str],
         affiliations: list[str],
         venue: str | None,
@@ -201,13 +208,20 @@ class Paper(BaseModel):
         language: str | None,
         keywords: list[str],
         abstract_text: str,
+        urls: list[str],
+        code_url: str | None,
+        data_url: str | None,
         group: str | None,
+        reading_status: ReadingStatus,
+        importance_score: int | None,
+        one_sentence_summary: str,
     ) -> Paper:
         return self.model_copy(
             update={
                 "bibliography": self.bibliography.model_copy(
                     update={
                         "title": title,
+                        "short_title": short_title,
                         "authors": authors,
                         "affiliations": affiliations,
                         "venue": venue,
@@ -216,10 +230,19 @@ class Paper(BaseModel):
                         "language": language,
                         "keywords": keywords,
                         "abstract_text": abstract_text,
+                        "urls": urls,
+                        "code_url": code_url,
+                        "data_url": data_url,
                     }
                 ),
                 "organization": self.organization.model_copy(
-                    update={"reading_date": reading_date, "group": group}
+                    update={
+                        "reading_date": reading_date,
+                        "group": group,
+                        "reading_status": reading_status,
+                        "importance_score": importance_score,
+                        "one_sentence_summary": one_sentence_summary,
+                    }
                 ),
                 "updated_at": datetime.now(UTC),
                 "revision": self.revision + 1,
@@ -231,6 +254,7 @@ class PaperAnalysisDocument(BaseModel):
     paper_id: UUID
     revision: int = Field(ge=1)
     updated_at: datetime
+    evidence_catalog: list[EvidenceReference]
     items: list[AnalysisItem]
 
 

@@ -4,12 +4,14 @@ import { apiGet, apiRequest } from '@/api/client'
 import type {
   AnalysisItemInput,
   CandidateImportResult,
+  EvidenceCreateResult,
   InvalidPaperRecord,
   NoteItemDeleteResult,
   NoteItemDocument,
   NoteItemFavoriteUpdateResult,
   NoteItemUpdateResult,
   NoteParsePreview,
+  NoteSlotUpdateResult,
   Paper,
   PaperAnalysisDocument,
   PaperList,
@@ -126,6 +128,7 @@ export const usePaperStore = defineStore('papers', {
       paper: Pick<PaperSummary, 'paper_id' | 'revision'>,
       input: {
         title: string
+        short_title: string
         authors: string[]
         affiliations: string[]
         venue: string | null
@@ -135,7 +138,13 @@ export const usePaperStore = defineStore('papers', {
         language: string | null
         keywords: string[]
         abstract_text: string
+        urls: string[]
+        code_url: string | null
+        data_url: string | null
         group: string | null
+        reading_status: PaperSummary['reading_status']
+        importance_score: number | null
+        one_sentence_summary: string
       },
     ) {
       return apiRequest<Paper>(`/projects/${projectId}/papers/${paper.paper_id}`, {
@@ -170,6 +179,73 @@ export const usePaperStore = defineStore('papers', {
     },
     async getNoteItems(projectId: string, paperId: string) {
       return apiGet<NoteItemDocument>(`/projects/${projectId}/papers/${paperId}/note/items`)
+    },
+    async createNoteItem(
+      projectId: string,
+      paperId: string,
+      input: { template_key: string; title: string; markdown: string },
+      expectedNoteRevision: number,
+      expectedPaperRevision: number,
+    ) {
+      return apiRequest<NoteItemUpdateResult>(
+        `/projects/${projectId}/papers/${paperId}/note/items`,
+        {
+          method: 'POST',
+          body: {
+            ...input,
+            expected_note_revision: expectedNoteRevision,
+            expected_paper_revision: expectedPaperRevision,
+          },
+        },
+      )
+    },
+    async updateNoteSlot(
+      projectId: string,
+      paperId: string,
+      templateKey: string,
+      markdown: string,
+      expectedNoteRevision: number,
+      expectedPaperRevision: number,
+    ) {
+      return apiRequest<NoteSlotUpdateResult>(
+        `/projects/${projectId}/papers/${paperId}/note/slots/${encodeURIComponent(templateKey)}`,
+        {
+          method: 'PUT',
+          body: {
+            markdown,
+            expected_note_revision: expectedNoteRevision,
+            expected_paper_revision: expectedPaperRevision,
+          },
+        },
+      )
+    },
+    async createEvidence(
+      projectId: string,
+      paperId: string,
+      input: {
+        item_id: string | null
+        evidence_type: string
+        page_label: string | null
+        pdf_page_index: number | null
+        section: string | null
+        figure: string | null
+        table: string | null
+        locator_note: string
+      },
+      expectedNoteRevision: number,
+      expectedPaperRevision: number,
+    ) {
+      return apiRequest<EvidenceCreateResult>(
+        `/projects/${projectId}/papers/${paperId}/note/evidence`,
+        {
+          method: 'POST',
+          body: {
+            ...input,
+            expected_note_revision: expectedNoteRevision,
+            expected_paper_revision: expectedPaperRevision,
+          },
+        },
+      )
     },
     async updateNoteItem(
       projectId: string,

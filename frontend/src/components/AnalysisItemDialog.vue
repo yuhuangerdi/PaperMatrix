@@ -2,16 +2,9 @@
 import { Plus, Trash2, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 
-import type {
-  AnalysisItem,
-  AnalysisItemInput,
-  AnalysisItemKind,
-  EvidenceReference,
-  WritingUse,
-} from '@/types/api'
+import type { AnalysisItem, AnalysisItemInput, AnalysisItemKind, WritingUse } from '@/types/api'
 
 const props = defineProps<{
-  paperId: string
   item: AnalysisItem | null
   busy: boolean
 }>()
@@ -49,19 +42,6 @@ const writingUseOptions: Array<{ value: WritingUse; label: string }> = [
   { value: 'FUTURE', label: '未来工作' },
 ]
 
-function emptyEvidence(): EvidenceReference {
-  return {
-    paper_id: props.paperId,
-    page_label: null,
-    pdf_page_index: null,
-    section: null,
-    figure: null,
-    table: null,
-    locator_note: '',
-    source_item_id: null,
-  }
-}
-
 function splitValues(value: string) {
   return value
     .split(/[,，]/)
@@ -71,6 +51,7 @@ function splitValues(value: string) {
 
 const form = ref({
   kind: props.item?.kind ?? ('research_problem' as AnalysisItemKind),
+  displayLabel: props.item?.display_label ?? '',
   title: props.item?.title ?? '',
   summary: props.item?.summary ?? '',
   tags: props.item?.tags.join(', ') ?? '',
@@ -79,7 +60,6 @@ const form = ref({
     key,
     value,
   })),
-  evidence: (props.item?.evidence_refs ?? []).map((entry) => ({ ...entry })),
 })
 const initial = JSON.stringify(form.value)
 const dirty = computed(() => JSON.stringify(form.value) !== initial)
@@ -97,10 +77,10 @@ function submit() {
   )
   emit('save', {
     kind: form.value.kind,
+    display_label: form.value.displayLabel.trim() || null,
     title: form.value.title.trim(),
     summary: form.value.summary.trim(),
     attributes,
-    evidence_refs: form.value.evidence,
     tags: splitValues(form.value.tags),
     writing_uses: form.value.writingUses,
   })
@@ -136,10 +116,14 @@ function submit() {
             </select>
           </label>
           <label class="field">
-            <span>标签</span>
+            <span>自定义标签</span>
             <input v-model="form.tags" placeholder="用逗号分隔" />
           </label>
         </div>
+        <label class="field">
+          <span>显示标签（可留空）</span>
+          <input v-model="form.displayLabel" maxlength="80" placeholder="默认使用条目类型" />
+        </label>
         <label class="field">
           <span>标题</span>
           <input v-model="form.title" maxlength="300" />
@@ -189,48 +173,10 @@ function submit() {
             </button>
           </div>
         </section>
-
-        <section class="evidence-editor">
-          <header>
-            <strong>证据定位</strong>
-            <button
-              class="button button--secondary button--compact"
-              type="button"
-              @click="form.evidence.push(emptyEvidence())"
-            >
-              <Plus :size="15" /> 添加证据
-            </button>
-          </header>
-          <div
-            v-for="(evidence, index) in form.evidence"
-            :key="evidence.evidence_id ?? index"
-            class="evidence-row"
-          >
-            <input v-model="evidence.page_label" placeholder="印刷页码" />
-            <input
-              v-model.number="evidence.pdf_page_index"
-              type="number"
-              min="1"
-              placeholder="PDF 页"
-            />
-            <input v-model="evidence.section" placeholder="章节" />
-            <input v-model="evidence.figure" placeholder="图号" />
-            <input v-model="evidence.table" placeholder="表号" />
-            <input v-model="evidence.locator_note" placeholder="定位说明" />
-            <button
-              class="icon-button icon-button--danger"
-              type="button"
-              aria-label="删除证据"
-              @click="form.evidence.splice(index, 1)"
-            >
-              <Trash2 :size="15" />
-            </button>
-          </div>
-        </section>
       </div>
 
       <footer>
-        <span>确认后写回论文 YAML；Markdown 解析候选不会自动覆盖。</span>
+        <span>证据引用只在笔记正文以“证据：E-001”维护。</span>
         <div>
           <button class="button button--secondary" type="button" @click="requestClose">取消</button>
           <button

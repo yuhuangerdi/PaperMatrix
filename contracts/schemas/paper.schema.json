@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "paper_id", "project_id", "source", "bibliography", "organization", "structured_summary", "created_at", "updated_at", "revision"],
   "properties": {
-    "schema_version": {"const": 8},
+    "schema_version": {"const": 11},
     "paper_id": {"type": "string", "format": "uuid"},
     "project_id": {"type": "string", "format": "uuid"},
     "source": {
@@ -70,7 +70,7 @@
     "structured_summary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["background", "related_work", "approach", "challenges", "innovations", "additional_contribution", "experiment", "evaluation", "items"],
+      "required": ["background", "related_work", "approach", "challenges", "innovations", "additional_contribution", "experiment", "evaluation", "evidence_catalog", "items"],
       "properties": {
         "background": {"type": "object", "additionalProperties": true},
         "related_work": {"type": "object", "additionalProperties": true},
@@ -80,18 +80,23 @@
         "additional_contribution": {"type": "object", "additionalProperties": true},
         "experiment": {"type": "object", "additionalProperties": true},
         "evaluation": {"type": "object", "additionalProperties": true},
+        "evidence_catalog": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/evidenceReference"}
+        },
         "items": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["item_id", "kind", "title", "summary", "section_key", "section_title", "section_order", "source_anchor", "source_note_revision", "source_fingerprint", "attributes", "evidence_refs", "tags", "writing_uses", "is_favorite", "created_at", "updated_at"],
+            "required": ["item_id", "kind", "display_label", "title", "summary", "section_key", "section_title", "section_order", "source_anchor", "source_note_revision", "source_fingerprint", "attributes", "evidence_ids", "tags", "writing_uses", "is_favorite", "created_at", "updated_at"],
             "properties": {
               "item_id": {"type": "string", "format": "uuid"},
               "kind": {
                 "type": "string",
                 "enum": ["background", "research_problem", "scenario", "related_work", "method", "method_component", "mechanism", "challenge", "innovation", "contribution", "experiment", "finding", "author_limitation", "reviewer_limitation", "condition"]
               },
+              "display_label": {"type": ["string", "null"], "maxLength": 80},
               "title": {"type": "string", "minLength": 1, "maxLength": 300},
               "summary": {"type": "string", "maxLength": 20000},
               "section_key": {"type": ["string", "null"], "maxLength": 40},
@@ -104,9 +109,10 @@
                 "type": "object",
                 "additionalProperties": {"type": "string"}
               },
-              "evidence_refs": {
+              "evidence_ids": {
                 "type": "array",
-                "items": {"$ref": "#/$defs/evidenceReference"}
+                "items": {"type": "string", "format": "uuid"},
+                "uniqueItems": true
               },
               "tags": {
                 "type": "array",
@@ -134,17 +140,17 @@
     "evidenceReference": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["evidence_id", "paper_id", "page_label", "pdf_page_index", "section", "figure", "table", "locator_note", "source_item_id"],
+      "required": ["evidence_id", "evidence_code", "paper_id", "page_label", "pdf_page_index", "section", "figure", "table", "locator_note"],
       "properties": {
         "evidence_id": {"type": "string", "format": "uuid"},
+        "evidence_code": {"type": ["string", "null"], "maxLength": 40},
         "paper_id": {"type": "string", "format": "uuid"},
         "page_label": {"type": ["string", "null"], "maxLength": 40},
         "pdf_page_index": {"type": ["integer", "null"], "minimum": 1},
         "section": {"type": ["string", "null"], "maxLength": 200},
         "figure": {"type": ["string", "null"], "maxLength": 80},
         "table": {"type": ["string", "null"], "maxLength": 80},
-        "locator_note": {"type": "string", "maxLength": 2000},
-        "source_item_id": {"type": ["string", "null"], "maxLength": 120}
+        "locator_note": {"type": "string", "maxLength": 2000}
       }
     }
   }

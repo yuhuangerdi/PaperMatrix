@@ -21,7 +21,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import { ApiError } from '@/api/client'
 import { usePaperStore } from '@/stores/papers'
 import { useProjectStore } from '@/stores/projects'
-import type { InvalidPaperRecord, PaperSourceStatus, PaperSummary } from '@/types/api'
+import type { InvalidPaperRecord, Paper, PaperSourceStatus, PaperSummary } from '@/types/api'
 
 type ImportMode = 'upload' | 'path' | 'scan' | 'manual'
 
@@ -37,6 +37,7 @@ const importOpen = ref(false)
 const importMode = ref<ImportMode>('upload')
 const editOpen = ref(false)
 const editingPaper = ref<PaperSummary | null>(null)
+const editingPaperDetail = ref<Paper | null>(null)
 const editForm = ref({
   title: '',
   authors: '',
@@ -176,6 +177,7 @@ async function openEdit(paper: PaperSummary) {
   try {
     const full = await paperStore.get(projectId.value, paper.paper_id)
     editingPaper.value = paper
+    editingPaperDetail.value = full
     editForm.value = {
       title: full.bibliography.title,
       authors: full.bibliography.authors?.join(', ') ?? '',
@@ -207,12 +209,13 @@ function splitValues(value: string) {
 }
 
 async function saveBasicInformation() {
-  if (!editingPaper.value) return
+  if (!editingPaper.value || !editingPaperDetail.value) return
   busy.value = true
   errorMessage.value = ''
   try {
     await paperStore.updateBasicInformation(projectId.value, editingPaper.value, {
       title: editForm.value.title,
+      short_title: editingPaperDetail.value.bibliography.short_title,
       authors: splitValues(editForm.value.authors),
       affiliations: splitValues(editForm.value.affiliations),
       venue: editForm.value.venue || null,
@@ -223,7 +226,13 @@ async function saveBasicInformation() {
       language: editForm.value.language || null,
       keywords: splitValues(editForm.value.keywords),
       abstract_text: editForm.value.abstractText,
+      urls: editingPaperDetail.value.bibliography.urls,
+      code_url: editingPaperDetail.value.bibliography.code_url,
+      data_url: editingPaperDetail.value.bibliography.data_url,
       group: editForm.value.group || null,
+      reading_status: editingPaperDetail.value.organization.reading_status,
+      importance_score: editingPaperDetail.value.organization.importance_score,
+      one_sentence_summary: editingPaperDetail.value.organization.one_sentence_summary,
     })
     editOpen.value = false
     successMessage.value = '论文基础信息与分组已保存。'

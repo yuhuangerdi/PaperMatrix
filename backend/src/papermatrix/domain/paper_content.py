@@ -13,6 +13,7 @@ QuestionStatus = Literal["open", "answered", "deferred"]
 
 class EvidenceReference(BaseModel):
     evidence_id: UUID = Field(default_factory=uuid4)
+    evidence_code: str | None = Field(default=None, max_length=40)
     paper_id: UUID
     page_label: str | None = Field(default=None, max_length=40)
     pdf_page_index: int | None = Field(default=None, ge=1)
@@ -20,7 +21,6 @@ class EvidenceReference(BaseModel):
     figure: str | None = Field(default=None, max_length=80)
     table: str | None = Field(default=None, max_length=80)
     locator_note: str = Field(default="", max_length=2000)
-    source_item_id: str | None = Field(default=None, max_length=120)
 
 
 class PaperNote(BaseModel):
@@ -72,7 +72,7 @@ class ReadingQuestion(BaseModel):
 
 
 class QuestionsDocument(BaseModel):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     paper_id: UUID
     revision: int = Field(ge=0)
     updated_at: datetime

@@ -493,13 +493,73 @@ paths:
       - $ref: "#/components/parameters/PaperId"
     get:
       operationId: getPaperNoteItems
-      summary: 从完整 Markdown 读取确认条目的可编辑来源片段
+      summary: 读取所有模板槽位（含空项）、可扩展条目和证据目录
       responses:
         "200":
           description: Note item document
           content:
             application/json:
               schema: { $ref: "#/components/schemas/NoteItemDocument" }
+    post:
+      operationId: createPaperNoteItem
+      summary: 在允许扩展的模板组内新增独立条目
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NoteItemCreate" }
+      responses:
+        "201":
+          description: Created note item and synchronized projection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NoteItemUpdateResult" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+        "422": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/papers/{paper_id}/note/slots/{template_key}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+      - in: path
+        name: template_key
+        required: true
+        schema: { type: string, maxLength: 40 }
+    put:
+      operationId: updatePaperNoteSlot
+      summary: 在模板原位置填写或清空一个固定槽位
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NoteSlotUpdate" }
+      responses:
+        "200":
+          description: Updated fixed slot, note and analysis projection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NoteSlotUpdateResult" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+        "422": { $ref: "#/components/responses/ErrorResponse" }
+  /projects/{project_id}/papers/{paper_id}/note/evidence:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - $ref: "#/components/parameters/PaperId"
+    post:
+      operationId: createPaperEvidence
+      summary: 新增论文级证据并可同时关联当前模板条目
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EvidenceCreate" }
+      responses:
+        "201":
+          description: Created evidence, updated note and analysis projection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EvidenceCreateResult" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+        "422": { $ref: "#/components/responses/ErrorResponse" }
   /projects/{project_id}/papers/{paper_id}/note/items/{item_id}:
     parameters:
       - $ref: "#/components/parameters/ProjectId"
@@ -1038,7 +1098,7 @@ components:
           revision,
         ]
       properties:
-        schema_version: { type: integer, const: 8 }
+        schema_version: { type: integer, const: 11 }
         paper_id: { type: string, format: uuid }
         project_id: { type: string, format: uuid }
         source:
@@ -1100,6 +1160,7 @@ components:
       properties:
         expected_revision: { type: integer, minimum: 1 }
         title: { type: string }
+        short_title: { type: string }
         authors:
           type: array
           items: { type: string }
@@ -1115,7 +1176,17 @@ components:
           type: array
           items: { type: string }
         abstract_text: { type: string }
+        urls:
+          type: array
+          items: { type: string, format: uri }
+        code_url: { type: [string, "null"], format: uri }
+        data_url: { type: [string, "null"], format: uri }
         group: { type: [string, "null"] }
+        reading_status:
+          type: string
+          enum: [unread, skimmed, deep_read, summarized, reported]
+        importance_score: { type: [integer, "null"], minimum: 1, maximum: 5 }
+        one_sentence_summary: { type: string, maxLength: 5000 }
     PaperNote:
       type: object
       required: [paper_id, markdown, revision, updated_at]
@@ -1135,16 +1206,17 @@ components:
       required:
         [
           paper_id,
+          evidence_code,
           page_label,
           pdf_page_index,
           section,
           figure,
           table,
           locator_note,
-          source_item_id,
         ]
       properties:
         evidence_id: { type: string, format: uuid }
+        evidence_code: { type: [string, "null"], maxLength: 40 }
         paper_id: { type: string, format: uuid }
         page_label: { type: [string, "null"] }
         pdf_page_index: { type: [integer, "null"], minimum: 1 }
@@ -1152,7 +1224,6 @@ components:
         figure: { type: [string, "null"] }
         table: { type: [string, "null"] }
         locator_note: { type: string }
-        source_item_id: { type: [string, "null"] }
     ReadingQuestion:
       type: object
       required:
@@ -1199,7 +1270,7 @@ components:
       type: object
       required: [schema_version, paper_id, revision, updated_at, questions]
       properties:
-        schema_version: { type: integer, const: 1 }
+        schema_version: { type: integer, const: 2 }
         paper_id: { type: string, format: uuid }
         revision: { type: integer, minimum: 0 }
         updated_at: { type: string, format: date-time }
@@ -1212,6 +1283,7 @@ components:
         [
           item_id,
           kind,
+          display_label,
           title,
           summary,
           section_key,
@@ -1221,7 +1293,7 @@ components:
           source_note_revision,
           source_fingerprint,
           attributes,
-          evidence_refs,
+          evidence_ids,
           tags,
           writing_uses,
           is_favorite,
@@ -1250,6 +1322,7 @@ components:
               reviewer_limitation,
               condition,
             ]
+        display_label: { type: [string, "null"], maxLength: 80 }
         title: { type: string, minLength: 1, maxLength: 300 }
         summary: { type: string, maxLength: 20000 }
         section_key: { type: [string, "null"], maxLength: 40 }
@@ -1263,9 +1336,10 @@ components:
         attributes:
           type: object
           additionalProperties: { type: string }
-        evidence_refs:
+        evidence_ids:
           type: array
-          items: { $ref: "#/components/schemas/EvidenceReference" }
+          items: { type: string, format: uuid }
+          uniqueItems: true
         tags:
           type: array
           items: { type: string }
@@ -1298,7 +1372,6 @@ components:
           title,
           summary,
           attributes,
-          evidence_refs,
           tags,
           writing_uses,
           expected_revision,
@@ -1324,14 +1397,12 @@ components:
               reviewer_limitation,
               condition,
             ]
+        display_label: { type: [string, "null"], maxLength: 80 }
         title: { type: string, minLength: 1, maxLength: 300 }
         summary: { type: string, maxLength: 20000 }
         attributes:
           type: object
           additionalProperties: { type: string }
-        evidence_refs:
-          type: array
-          items: { $ref: "#/components/schemas/EvidenceReference" }
         tags:
           type: array
           items: { type: string }
@@ -1354,11 +1425,14 @@ components:
         expected_revision: { type: integer, minimum: 1 }
     PaperAnalysisDocument:
       type: object
-      required: [paper_id, revision, updated_at, items]
+      required: [paper_id, revision, updated_at, evidence_catalog, items]
       properties:
         paper_id: { type: string, format: uuid }
         revision: { type: integer, minimum: 1 }
         updated_at: { type: string, format: date-time }
+        evidence_catalog:
+          type: array
+          items: { $ref: "#/components/schemas/EvidenceReference" }
         items:
           type: array
           items: { $ref: "#/components/schemas/AnalysisItem" }
@@ -1517,6 +1591,7 @@ components:
         [
           item_id,
           kind,
+          display_label,
           title,
           section_key,
           section_title,
@@ -1529,6 +1604,7 @@ components:
       properties:
         item_id: { type: string, format: uuid }
         kind: { $ref: "#/components/schemas/AnalysisItem/properties/kind" }
+        display_label: { type: [string, "null"], maxLength: 80 }
         title: { type: string }
         section_key: { type: [string, "null"] }
         section_title: { type: [string, "null"] }
@@ -1548,6 +1624,9 @@ components:
           paper_id,
           note_revision,
           paper_revision,
+          item_templates,
+          slots,
+          evidence_catalog,
           items,
           candidates,
           removals,
@@ -1558,6 +1637,15 @@ components:
         paper_id: { type: string, format: uuid }
         note_revision: { type: integer, minimum: 0 }
         paper_revision: { type: integer, minimum: 1 }
+        item_templates:
+          type: array
+          items: { $ref: "#/components/schemas/NoteItemTemplate" }
+        slots:
+          type: array
+          items: { $ref: "#/components/schemas/NoteItemSlot" }
+        evidence_catalog:
+          type: array
+          items: { $ref: "#/components/schemas/EvidenceReference" }
         items:
           type: array
           items: { $ref: "#/components/schemas/NoteItemSource" }
@@ -1571,6 +1659,124 @@ components:
           type: array
           items: { type: string }
         pending_candidate_count: { type: integer, minimum: 0 }
+    NoteItemTemplate:
+      type: object
+      required:
+        [
+          template_key,
+          chapter,
+          kind,
+          label,
+          description,
+          heading,
+          heading_level,
+          repeatable,
+          child_heading_prefix,
+          insert_before_heading,
+          body_template,
+        ]
+      properties:
+        template_key: { type: string, maxLength: 40 }
+        chapter: { type: integer, minimum: 1, maximum: 8 }
+        kind: { $ref: "#/components/schemas/AnalysisItem/properties/kind" }
+        label: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 300 }
+        heading: { type: string, maxLength: 300 }
+        heading_level: { type: integer, enum: [2, 3, 4] }
+        repeatable: { type: boolean }
+        child_heading_prefix: { type: string, maxLength: 80 }
+        insert_before_heading: { type: [string, "null"], maxLength: 300 }
+        body_template: { type: string, maxLength: 20000 }
+    NoteItemSlot:
+      type: object
+      required:
+        [
+          slot_key,
+          template_key,
+          kind,
+          label,
+          description,
+          section_title,
+          markdown,
+          item_id,
+          source_fingerprint,
+          sync_status,
+          is_favorite,
+          repeatable,
+          repeatable_template_key,
+          can_delete,
+        ]
+      properties:
+        slot_key: { type: string, maxLength: 80 }
+        template_key: { type: string, maxLength: 40 }
+        kind: { $ref: "#/components/schemas/AnalysisItem/properties/kind" }
+        label: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 300 }
+        section_title: { type: string, maxLength: 300 }
+        markdown: { type: string, maxLength: 200000 }
+        item_id: { type: [string, "null"], format: uuid }
+        source_fingerprint:
+          type: [string, "null"]
+          pattern: "^[0-9a-f]{64}$"
+        sync_status:
+          type: string
+          enum: [empty, synced, review_required, missing]
+        is_favorite: { type: boolean }
+        repeatable: { type: boolean }
+        repeatable_template_key: { type: [string, "null"], maxLength: 40 }
+        can_delete: { type: boolean }
+    NoteItemCreate:
+      type: object
+      required:
+        [
+          template_key,
+          title,
+          expected_note_revision,
+          expected_paper_revision,
+        ]
+      properties:
+        template_key: { type: string, minLength: 1, maxLength: 40 }
+        title: { type: string, minLength: 1, maxLength: 300 }
+        markdown: { type: string, maxLength: 200000 }
+        expected_note_revision: { type: integer, minimum: 0 }
+        expected_paper_revision: { type: integer, minimum: 1 }
+    NoteSlotUpdate:
+      type: object
+      required: [markdown, expected_note_revision, expected_paper_revision]
+      properties:
+        markdown: { type: string, maxLength: 200000 }
+        expected_note_revision: { type: integer, minimum: 0 }
+        expected_paper_revision: { type: integer, minimum: 1 }
+    EvidenceCreate:
+      type: object
+      required:
+        [
+          locator_note,
+          expected_note_revision,
+          expected_paper_revision,
+        ]
+      properties:
+        item_id: { type: [string, "null"], format: uuid }
+        evidence_type: { type: string, maxLength: 80 }
+        page_label: { type: [string, "null"], maxLength: 40 }
+        pdf_page_index: { type: [integer, "null"], minimum: 1 }
+        section: { type: [string, "null"], maxLength: 200 }
+        figure: { type: [string, "null"], maxLength: 80 }
+        table: { type: [string, "null"], maxLength: 80 }
+        locator_note: { type: string, minLength: 1, maxLength: 2000 }
+        expected_note_revision: { type: integer, minimum: 0 }
+        expected_paper_revision: { type: integer, minimum: 1 }
+    EvidenceCreateResult:
+      type: object
+      required: [note, analysis, evidence, item]
+      properties:
+        note: { $ref: "#/components/schemas/PaperNote" }
+        analysis: { $ref: "#/components/schemas/PaperAnalysisDocument" }
+        evidence: { $ref: "#/components/schemas/EvidenceReference" }
+        item:
+          oneOf:
+            - $ref: "#/components/schemas/AnalysisItem"
+            - type: "null"
     NoteItemUpdate:
       type: object
       required:
@@ -1594,6 +1800,17 @@ components:
         note: { $ref: "#/components/schemas/PaperNote" }
         analysis: { $ref: "#/components/schemas/PaperAnalysisDocument" }
         item: { $ref: "#/components/schemas/AnalysisItem" }
+    NoteSlotUpdateResult:
+      type: object
+      required: [note, analysis, slot, item]
+      properties:
+        note: { $ref: "#/components/schemas/PaperNote" }
+        analysis: { $ref: "#/components/schemas/PaperAnalysisDocument" }
+        slot: { $ref: "#/components/schemas/NoteItemSlot" }
+        item:
+          oneOf:
+            - $ref: "#/components/schemas/AnalysisItem"
+            - type: "null"
     NoteItemFavoriteUpdate:
       type: object
       required: [is_favorite, expected_paper_revision]

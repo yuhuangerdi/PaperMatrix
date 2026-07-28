@@ -10,11 +10,13 @@ from pydantic import BaseModel, Field, model_validator
 
 from papermatrix.domain.note_analysis import (
     CandidateImportResult,
+    EvidenceCreateResult,
     NoteItemDeleteResult,
     NoteItemDocument,
     NoteItemFavoriteUpdateResult,
     NoteItemUpdateResult,
     NoteParsePreview,
+    NoteSlotUpdateResult,
 )
 from papermatrix.domain.paper_content import (
     EvidenceReference,
@@ -53,6 +55,33 @@ class NoteItemUpdate(BaseModel):
     expected_note_revision: int = Field(ge=0)
     expected_paper_revision: int = Field(ge=1)
     expected_source_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class NoteItemCreate(BaseModel):
+    template_key: str = Field(min_length=1, max_length=40)
+    title: str = Field(min_length=1, max_length=300)
+    markdown: str = Field(default="", max_length=200_000)
+    expected_note_revision: int = Field(ge=0)
+    expected_paper_revision: int = Field(ge=1)
+
+
+class NoteSlotUpdate(BaseModel):
+    markdown: str = Field(max_length=200_000)
+    expected_note_revision: int = Field(ge=0)
+    expected_paper_revision: int = Field(ge=1)
+
+
+class EvidenceCreate(BaseModel):
+    item_id: UUID | None = None
+    evidence_type: str = Field(default="", max_length=80)
+    page_label: str | None = Field(default=None, max_length=40)
+    pdf_page_index: int | None = Field(default=None, ge=1)
+    section: str | None = Field(default=None, max_length=200)
+    figure: str | None = Field(default=None, max_length=80)
+    table: str | None = Field(default=None, max_length=80)
+    locator_note: str = Field(min_length=1, max_length=2000)
+    expected_note_revision: int = Field(ge=0)
+    expected_paper_revision: int = Field(ge=1)
 
 
 class NoteItemDeleteRequest(BaseModel):
@@ -150,6 +179,61 @@ def get_note_items(
     request: Request,
 ) -> NoteItemDocument:
     return _service(request).get_note_items(project_id, paper_id)
+
+
+@router.post(
+    "/projects/{project_id}/papers/{paper_id}/note/items",
+    response_model=NoteItemUpdateResult,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_note_item(
+    project_id: UUID,
+    paper_id: UUID,
+    payload: NoteItemCreate,
+    request: Request,
+) -> NoteItemUpdateResult:
+    return _service(request).create_note_item(
+        project_id,
+        paper_id,
+        **payload.model_dump(),
+    )
+
+
+@router.put(
+    "/projects/{project_id}/papers/{paper_id}/note/slots/{template_key}",
+    response_model=NoteSlotUpdateResult,
+)
+def update_note_slot(
+    project_id: UUID,
+    paper_id: UUID,
+    template_key: str,
+    payload: NoteSlotUpdate,
+    request: Request,
+) -> NoteSlotUpdateResult:
+    return _service(request).update_note_slot(
+        project_id,
+        paper_id,
+        template_key,
+        **payload.model_dump(),
+    )
+
+
+@router.post(
+    "/projects/{project_id}/papers/{paper_id}/note/evidence",
+    response_model=EvidenceCreateResult,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_evidence(
+    project_id: UUID,
+    paper_id: UUID,
+    payload: EvidenceCreate,
+    request: Request,
+) -> EvidenceCreateResult:
+    return _service(request).create_evidence(
+        project_id,
+        paper_id,
+        **payload.model_dump(),
+    )
 
 
 @router.put(

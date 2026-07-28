@@ -79,7 +79,7 @@ export interface Paper extends Omit<
   PaperSummary,
   'source_status' | 'source_filename' | 'page_count'
 > {
-  schema_version: 8
+  schema_version: 11
   source: {
     path: string | null
     path_mode: 'absolute' | 'workspace_relative' | null
@@ -104,6 +104,9 @@ export interface Paper extends Omit<
     keywords: string[]
     abstract_text: string
     publication_type: string
+    urls: string[]
+    code_url: string | null
+    data_url: string | null
   }
   organization: {
     topics: string[]
@@ -146,6 +149,7 @@ export type QuestionStatus = 'open' | 'answered' | 'deferred'
 
 export interface EvidenceReference {
   evidence_id?: string
+  evidence_code: string | null
   paper_id: string
   page_label: string | null
   pdf_page_index: number | null
@@ -153,7 +157,6 @@ export interface EvidenceReference {
   figure: string | null
   table: string | null
   locator_note: string
-  source_item_id: string | null
 }
 
 export interface ReadingQuestion {
@@ -169,7 +172,7 @@ export interface ReadingQuestion {
 }
 
 export interface QuestionsDocument {
-  schema_version: 1
+  schema_version: 2
   paper_id: string
   revision: number
   updated_at: string
@@ -215,6 +218,7 @@ export type AnalysisItemKind =
 export interface AnalysisItem {
   item_id: string
   kind: AnalysisItemKind
+  display_label: string | null
   title: string
   summary: string
   section_key: string | null
@@ -224,7 +228,7 @@ export interface AnalysisItem {
   source_note_revision: number | null
   source_fingerprint: string | null
   attributes: Record<string, string>
-  evidence_refs: EvidenceReference[]
+  evidence_ids: string[]
   tags: string[]
   writing_uses: WritingUse[]
   is_favorite: boolean
@@ -236,15 +240,16 @@ export interface PaperAnalysisDocument {
   paper_id: string
   revision: number
   updated_at: string
+  evidence_catalog: EvidenceReference[]
   items: AnalysisItem[]
 }
 
 export interface AnalysisItemInput {
   kind: AnalysisItemKind
+  display_label: string | null
   title: string
   summary: string
   attributes: Record<string, string>
-  evidence_refs: EvidenceReference[]
   tags: string[]
   writing_uses: WritingUse[]
 }
@@ -300,6 +305,7 @@ export interface CandidateImportResult {
 export interface NoteItemSource {
   item_id: string
   kind: AnalysisItemKind
+  display_label: string | null
   title: string
   section_key: string | null
   section_title: string | null
@@ -310,10 +316,44 @@ export interface NoteItemSource {
   is_favorite: boolean
 }
 
+export interface NoteItemTemplate {
+  template_key: string
+  chapter: number
+  kind: AnalysisItemKind
+  label: string
+  description: string
+  heading: string
+  heading_level: 2 | 3 | 4
+  repeatable: boolean
+  child_heading_prefix: string
+  insert_before_heading: string | null
+  body_template: string
+}
+
+export interface NoteItemSlot {
+  slot_key: string
+  template_key: string
+  kind: AnalysisItemKind
+  label: string
+  description: string
+  section_title: string
+  markdown: string
+  item_id: string | null
+  source_fingerprint: string | null
+  sync_status: 'empty' | 'synced' | 'review_required' | 'missing'
+  is_favorite: boolean
+  repeatable: boolean
+  repeatable_template_key: string | null
+  can_delete: boolean
+}
+
 export interface NoteItemDocument {
   paper_id: string
   note_revision: number
   paper_revision: number
+  item_templates: NoteItemTemplate[]
+  slots: NoteItemSlot[]
+  evidence_catalog: EvidenceReference[]
   items: NoteItemSource[]
   candidates: NoteAnalysisCandidate[]
   removals: NoteAnalysisRemoval[]
@@ -325,6 +365,20 @@ export interface NoteItemUpdateResult {
   note: PaperNote
   analysis: PaperAnalysisDocument
   item: AnalysisItem
+}
+
+export interface NoteSlotUpdateResult {
+  note: PaperNote
+  analysis: PaperAnalysisDocument
+  slot: NoteItemSlot
+  item: AnalysisItem | null
+}
+
+export interface EvidenceCreateResult {
+  note: PaperNote
+  analysis: PaperAnalysisDocument
+  evidence: EvidenceReference
+  item: AnalysisItem | null
 }
 
 export interface NoteItemFavoriteUpdateResult {

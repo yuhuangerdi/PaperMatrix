@@ -23,10 +23,10 @@ from papermatrix.domain.paper import (
     PaperList,
     PaperSource,
     PaperSummary,
+    ReadingStatus,
     SourceStatus,
     WritingUse,
 )
-from papermatrix.domain.paper_content import EvidenceReference
 from papermatrix.repositories.paper_repository import PaperRepository
 from papermatrix.repositories.project_repository import ProjectRepository
 from papermatrix.services.paper_content_service import PaperContentService
@@ -266,6 +266,7 @@ class PaperService:
         paper_id: UUID,
         *,
         title: str,
+        short_title: str,
         authors: builtins.list[str],
         affiliations: builtins.list[str],
         venue: str | None,
@@ -275,7 +276,13 @@ class PaperService:
         language: str | None,
         keywords: builtins.list[str],
         abstract_text: str,
+        urls: builtins.list[str],
+        code_url: str | None,
+        data_url: str | None,
         group: str | None,
+        reading_status: ReadingStatus,
+        importance_score: int | None,
+        one_sentence_summary: str,
         expected_revision: int,
     ) -> Paper:
         projects, papers = self._repositories()
@@ -283,6 +290,7 @@ class PaperService:
         current = papers.load(project_id, paper_id)
         updated = current.update_basic_information(
             title=title.strip(),
+            short_title=short_title.strip(),
             authors=self._clean_list(authors),
             affiliations=self._clean_list(affiliations),
             venue=self._clean_optional(venue),
@@ -292,9 +300,17 @@ class PaperService:
             language=self._clean_optional(language),
             keywords=self._clean_list(keywords),
             abstract_text=abstract_text.strip(),
+            urls=self._clean_list(urls),
+            code_url=self._clean_optional(code_url),
+            data_url=self._clean_optional(data_url),
             group=self._clean_optional(group),
+            reading_status=reading_status,
+            importance_score=importance_score,
+            one_sentence_summary=one_sentence_summary.strip(),
         )
-        return papers.save(updated, expected_revision=expected_revision)
+        saved = papers.save(updated, expected_revision=expected_revision)
+        self._content.sync_note_basic_information(project_id, saved)
+        return saved
 
     def get_analysis(self, project_id: UUID, paper_id: UUID) -> PaperAnalysisDocument:
         projects, papers = self._repositories()
@@ -308,10 +324,10 @@ class PaperService:
         paper_id: UUID,
         *,
         kind: AnalysisItemKind,
+        display_label: str | None,
         title: str,
         summary: str,
         attributes: dict[str, str],
-        evidence_refs: builtins.list[EvidenceReference],
         tags: builtins.list[str],
         writing_uses: builtins.list[WritingUse],
         expected_revision: int,
@@ -321,10 +337,11 @@ class PaperService:
         current = papers.load(project_id, paper_id)
         item = AnalysisItem.create(
             kind=kind,
+            display_label=display_label,
             title=title,
             summary=summary,
             attributes=self._clean_attributes(attributes),
-            evidence_refs=self._normalize_evidence(paper_id, evidence_refs),
+            evidence_ids=[],
             tags=self._clean_list(tags),
             writing_uses=builtins.list(dict.fromkeys(writing_uses)),
         )
@@ -341,10 +358,10 @@ class PaperService:
         item_id: UUID,
         *,
         kind: AnalysisItemKind,
+        display_label: str | None,
         title: str,
         summary: str,
         attributes: dict[str, str],
-        evidence_refs: builtins.list[EvidenceReference],
         tags: builtins.list[str],
         writing_uses: builtins.list[WritingUse],
         expected_revision: int,
@@ -361,10 +378,12 @@ class PaperService:
         updated_item = existing.model_copy(
             update={
                 "kind": kind,
+                "display_label": (
+                    display_label.strip() if display_label and display_label.strip() else None
+                ),
                 "title": title.strip(),
                 "summary": summary.strip(),
                 "attributes": self._clean_attributes(attributes),
-                "evidence_refs": self._normalize_evidence(paper_id, evidence_refs),
                 "tags": self._clean_list(tags),
                 "writing_uses": builtins.list(dict.fromkeys(writing_uses)),
                 "updated_at": datetime.now(UTC),
@@ -475,6 +494,7 @@ class PaperService:
             paper_id=paper.paper_id,
             revision=paper.revision,
             updated_at=paper.updated_at,
+            evidence_catalog=paper.structured_summary.evidence_catalog,
             items=paper.structured_summary.items,
         )
 
@@ -490,13 +510,6 @@ class PaperService:
                 "revision": paper.revision + 1,
             }
         )
-
-    @staticmethod
-    def _normalize_evidence(
-        paper_id: UUID,
-        evidence_refs: builtins.list[EvidenceReference],
-    ) -> builtins.list[EvidenceReference]:
-        return [item.model_copy(update={"paper_id": paper_id}) for item in evidence_refs]
 
     @staticmethod
     def _clean_attributes(values: dict[str, str]) -> dict[str, str]:

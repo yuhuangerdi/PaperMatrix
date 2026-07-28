@@ -17,6 +17,7 @@ _NUMBERING = re.compile(r"^\d+(?:\.\d+)*(?:[.、]\s*|\s+)?")
 _SECTION_NUMBER = re.compile(r"^(\d+)(?:[.、]\s*|\s+)")
 _ITEM_ANCHOR = re.compile(r"<!--\s*papermatrix:item:([0-9a-fA-F-]{36})\s*-->")
 _ATTRIBUTE_KEY = re.compile(r"^[^:\uff1a\n]{1,60}$")
+_EVIDENCE_CODE = re.compile(r"\bE-\d{3,}\b", re.IGNORECASE)
 _PLACEHOLDER_VALUES = {
     "",
     "______",
@@ -69,12 +70,22 @@ def parse_note_candidates(
     for block in blocks:
         if block.level < 3:
             continue
-        if block.level == 4 and _is_representative_work_child(block, blocks):
+        if block.level == 3 and _is_representative_work_heading(block.heading):
             continue
-        kind = _kind_for_heading(block.heading)
+        kind = (
+            "related_work"
+            if _is_representative_work_child(block, blocks)
+            else _kind_for_heading(block.heading)
+        )
         if kind is None:
             continue
-        candidate = _block_candidate(paper_id, block, kind, existing_items)
+        candidate = _block_candidate(
+            paper_id,
+            block,
+            kind,
+            existing_items,
+            allow_empty=block.anchor_id is not None and _is_repeatable_item_block(block, blocks),
+        )
         if candidate is not None:
             candidates.append(candidate)
 
@@ -156,6 +167,7 @@ def _kind_for_heading(heading: str) -> AnalysisItemKind | None:
                 "结果验证",
                 "失败恢复与重新规划",
                 "输出结果",
+                "具体流程和技术细节",
             ),
             "method_component",
         ),
@@ -189,6 +201,8 @@ def _block_candidate(
     block: _Block,
     kind: AnalysisItemKind,
     existing_items: list[AnalysisItem],
+    *,
+    allow_empty: bool = False,
 ) -> NoteAnalysisCandidate | None:
     nested_attributes = _nested_heading_attributes(block.lines)
     attributes: dict[str, str] = {}
@@ -218,10 +232,10 @@ def _block_candidate(
         prose.append(value)
     attributes.update(nested_attributes)
     attributes.update(_table_attributes(block.lines))
-    if not attributes and not prose:
+    if not attributes and not prose and not allow_empty:
         return None
     heading = _NUMBERING.sub("", block.heading).strip()
-    title = heading
+    title = _repeatable_item_title(heading)
     if re.fullmatch(r"(挑战|创新点)\s*\d+", heading) and prose:
         title = prose[0][:300]
     summary = "\n".join(prose)
@@ -238,6 +252,31 @@ def _block_candidate(
         block.start,
         block.end,
         _superseded_item_ids(block, existing_items),
+    )
+
+
+_REPEATABLE_HEADING_PREFIXES = (
+    "挑战",
+    "创新点",
+)
+
+
+def _repeatable_item_title(heading: str) -> str:
+    for prefix in _REPEATABLE_HEADING_PREFIXES:
+        for separator in (":", "\uff1a"):
+            marker = f"{prefix}{separator}"
+            if heading.startswith(marker) and heading[len(marker) :].strip():
+                return heading[len(marker) :].strip()
+    return heading
+
+
+def _is_repeatable_item_block(block: _Block, blocks: list[_Block]) -> bool:
+    if _is_representative_work_child(block, blocks):
+        return True
+    heading = _NUMBERING.sub("", block.heading).strip()
+    return any(
+        heading.startswith((f"{prefix}:", f"{prefix}\uff1a"))
+        for prefix in _REPEATABLE_HEADING_PREFIXES
     )
 
 
@@ -333,16 +372,28 @@ def _superseded_item_ids(
     return ids
 
 
-def _parse_evidence(blocks: list[_Block], paper_id: UUID) -> list[tuple[str, EvidenceReference]]:
-    block = next((item for item in blocks if "关键引用、页码与证据" in item.heading), None)
+def _parse_evidence(blocks: list[_Block], paper_id: UUID) -> list[EvidenceReference]:
+    block = next(
+        (
+            item
+            for item in blocks
+            if any(
+                title in item.heading for title in ("关键引用、页码与证据", "关键证据与页码定位")
+            )
+        ),
+        None,
+    )
     if block is None:
         return []
     rows = _table_rows(block.lines)
-    result: list[tuple[str, EvidenceReference]] = []
+    result: list[EvidenceReference] = []
     for _, values in rows[1:]:
         padded = [*values, *[""] * (7 - len(values))]
-        source_id, evidence_type, claim, page, pdf_page, figure_table, note = padded[:7]
+        evidence_code, _evidence_type, claim, page, pdf_page, figure_table, note = padded[:7]
         if not _meaningful(claim):
+            continue
+        normalized_code = evidence_code.strip().upper()
+        if _EVIDENCE_CODE.fullmatch(normalized_code) is None:
             continue
         try:
             page_index = int(pdf_page) if _meaningful(pdf_page) else None
@@ -360,21 +411,19 @@ def _parse_evidence(blocks: list[_Block], paper_id: UUID) -> list[tuple[str, Evi
         )
         evidence_id = uuid5(
             NAMESPACE_URL,
-            f"papermatrix:evidence:{paper_id}:{source_id}:{claim}:{page}:{pdf_page}",
+            f"papermatrix:evidence:{paper_id}:{normalized_code}",
         )
         result.append(
-            (
-                evidence_type,
-                EvidenceReference(
-                    evidence_id=evidence_id,
-                    paper_id=paper_id,
-                    page_label=page if _meaningful(page) else None,
-                    pdf_page_index=page_index,
-                    figure=figure,
-                    table=table,
-                    locator_note=note if _meaningful(note) else claim,
-                    source_item_id=source_id or None,
-                ),
+            EvidenceReference(
+                evidence_id=evidence_id,
+                evidence_code=normalized_code,
+                paper_id=paper_id,
+                page_label=page if _meaningful(page) else None,
+                pdf_page_index=page_index,
+                section=note if _meaningful(note) else None,
+                figure=figure,
+                table=table,
+                locator_note=claim,
             )
         )
     return result
@@ -382,29 +431,17 @@ def _parse_evidence(blocks: list[_Block], paper_id: UUID) -> list[tuple[str, Evi
 
 def _attach_evidence(
     candidate: NoteAnalysisCandidate,
-    evidence: list[tuple[str, EvidenceReference]],
+    evidence: list[EvidenceReference],
 ) -> NoteAnalysisCandidate:
-    kind_terms: dict[AnalysisItemKind, tuple[str, ...]] = {
-        "background": ("背景", "动机", "重要"),
-        "research_problem": ("背景", "问题"),
-        "related_work": ("相关", "文献", "方法"),
-        "method": ("方法",),
-        "method_component": ("方法",),
-        "mechanism": ("方法",),
-        "challenge": ("挑战",),
-        "innovation": ("创新",),
-        "contribution": ("贡献",),
-        "experiment": ("实验",),
-        "finding": ("结果", "发现"),
-        "author_limitation": ("局限",),
-        "reviewer_limitation": ("局限",),
-        "condition": ("条件",),
-        "scenario": ("场景",),
+    referenced_codes = {
+        code.upper()
+        for value in [candidate.summary, *candidate.attributes.values()]
+        for code in _EVIDENCE_CODE.findall(value)
     }
     matches = [
         item
-        for evidence_type, item in evidence
-        if any(term in evidence_type for term in kind_terms[candidate.kind])
+        for item in evidence
+        if item.evidence_code is not None and item.evidence_code.upper() in referenced_codes
     ]
     return candidate.model_copy(update={"evidence_refs": matches})
 
@@ -676,6 +713,279 @@ def replace_note_item_fragment(
 
     suffix = "\n" if markdown.endswith("\n") else ""
     return "\n".join(lines) + suffix
+
+
+def append_note_item_fragment(
+    markdown: str,
+    *,
+    item_id: UUID,
+    chapter: int,
+    label: str,
+    title: str,
+    body: str,
+) -> str:
+    """Append one anchored template item to its numbered chapter."""
+    lines = markdown.splitlines()
+    chapter_heading = re.compile(rf"^##\s+{chapter}(?:[.、]\s*|\s+)")
+    start = next(
+        (index for index, line in enumerate(lines) if chapter_heading.match(line.strip())),
+        None,
+    )
+    if start is None:
+        return markdown
+    end = next(
+        (
+            index
+            for index in range(start + 1, len(lines))
+            if re.match(r"^##\s+\d+(?:[.、]\s*|\s+)", lines[index].strip())
+        ),
+        len(lines),
+    )
+    insertion = end
+    while insertion > start + 1 and not lines[insertion - 1].strip():
+        insertion -= 1
+    if insertion > start + 1 and lines[insertion - 1].strip() == "---":
+        insertion -= 1
+        while insertion > start + 1 and not lines[insertion - 1].strip():
+            insertion -= 1
+    safe_title = " ".join(title.split())
+    fragment = [
+        "",
+        f"<!-- papermatrix:item:{item_id} -->",
+        f"### {label}: {safe_title}",
+        "",
+        body.strip(),
+        "",
+    ]
+    lines[insertion:insertion] = fragment
+    suffix = "\n" if markdown.endswith("\n") else ""
+    return "\n".join(lines) + suffix
+
+
+def note_template_slot_fragment(
+    markdown: str,
+    *,
+    heading: str,
+    heading_level: int,
+) -> str:
+    """Return only the editable body belonging to one fixed template heading."""
+    lines = markdown.splitlines()
+    location = _heading_block_range(lines, heading=heading, heading_level=heading_level)
+    if location is None:
+        return ""
+    heading_index, end = location
+    body, _ = _split_template_tail(lines[heading_index + 1 : end])
+    return "\n".join(body).strip()
+
+
+def replace_note_template_slot(
+    markdown: str,
+    *,
+    heading: str,
+    heading_level: int,
+    item_id: UUID,
+    body: str,
+) -> str:
+    """Update a fixed template slot without moving or renaming its heading."""
+    lines = markdown.splitlines()
+    location = _heading_block_range(lines, heading=heading, heading_level=heading_level)
+    if location is None:
+        return markdown
+    heading_index, end = location
+    marker = f"<!-- papermatrix:item:{item_id} -->"
+    if heading_index == 0 or lines[heading_index - 1].strip() != marker:
+        lines.insert(heading_index, marker)
+        heading_index += 1
+        end += 1
+    current_body, preserved_tail = _split_template_tail(lines[heading_index + 1 : end])
+    del current_body
+    replacement = body.strip().splitlines() if body.strip() else []
+    formatted_body = ["", *replacement, ""] if replacement else [""]
+    lines[heading_index + 1 : end] = [*formatted_body, *preserved_tail]
+    suffix = "\n" if markdown.endswith("\n") else ""
+    return "\n".join(lines) + suffix
+
+
+def append_repeatable_note_item(
+    markdown: str,
+    *,
+    parent_heading: str,
+    parent_heading_level: int,
+    item_id: UUID,
+    title: str,
+    body: str,
+    child_heading_prefix: str = "",
+    insert_before_heading: str | None = None,
+) -> str:
+    """Insert one independently addressable child at its semantic template position."""
+    lines = markdown.splitlines()
+    location = _heading_block_range(
+        lines,
+        heading=parent_heading,
+        heading_level=parent_heading_level,
+    )
+    if location is None:
+        return markdown
+    parent_index, end = location
+    if insert_before_heading:
+        insertion = next(
+            (
+                index
+                for index in range(parent_index + 1, end)
+                if (match := _HEADING.match(lines[index]))
+                and len(match.group(1)) == parent_heading_level + 1
+                and match.group(2).strip() == insert_before_heading
+            ),
+            end,
+        )
+        if insertion > parent_index + 1 and _ITEM_ANCHOR.fullmatch(lines[insertion - 1].strip()):
+            insertion -= 1
+    else:
+        insertion = end
+        while insertion > parent_index + 1 and not lines[insertion - 1].strip():
+            insertion -= 1
+        if insertion > parent_index + 1 and lines[insertion - 1].strip() == "---":
+            insertion -= 1
+            while insertion > parent_index + 1 and not lines[insertion - 1].strip():
+                insertion -= 1
+    safe_title = " ".join(title.split())
+    heading_text = f"{child_heading_prefix}: {safe_title}" if child_heading_prefix else safe_title
+    child_heading_level = parent_heading_level + 1
+    fragment = [
+        "",
+        f"<!-- papermatrix:item:{item_id} -->",
+        f"{'#' * child_heading_level} {heading_text}",
+        "",
+        body.strip(),
+        "",
+    ]
+    lines[insertion:insertion] = fragment
+    suffix = "\n" if markdown.endswith("\n") else ""
+    return "\n".join(lines) + suffix
+
+
+def _heading_block_range(
+    lines: list[str],
+    *,
+    heading: str,
+    heading_level: int,
+) -> tuple[int, int] | None:
+    heading_index = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if (match := _HEADING.match(line))
+            and len(match.group(1)) == heading_level
+            and match.group(2).strip() == heading
+        ),
+        None,
+    )
+    if heading_index is None:
+        return None
+    end = len(lines)
+    for index in range(heading_index + 1, len(lines)):
+        match = _HEADING.match(lines[index])
+        if match and len(match.group(1)) <= heading_level:
+            end = (
+                index - 1
+                if index > heading_index and _ITEM_ANCHOR.fullmatch(lines[index - 1].strip())
+                else index
+            )
+            break
+    return heading_index, end
+
+
+def _split_template_tail(lines: list[str]) -> tuple[list[str], list[str]]:
+    """Keep a chapter's trailing horizontal rule outside the editable slot."""
+    last_content = len(lines) - 1
+    while last_content >= 0 and not lines[last_content].strip():
+        last_content -= 1
+    if last_content < 0 or lines[last_content].strip() != "---":
+        return lines, []
+    tail_start = last_content
+    while tail_start > 0 and not lines[tail_start - 1].strip():
+        tail_start -= 1
+    return lines[:tail_start], lines[tail_start:]
+
+
+def append_evidence_row(
+    markdown: str,
+    evidence: EvidenceReference,
+    *,
+    evidence_type: str = "",
+) -> str:
+    """Append one evidence record to the chapter 11 Markdown table."""
+
+    def cell(value: object | None) -> str:
+        if value is None:
+            return ""
+        return " ".join(str(value).replace("|", r"\|").split())
+
+    lines = markdown.splitlines()
+    section = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if re.match(r"^##\s+11(?:[.、]\s*|\s+)", line.strip())
+        ),
+        None,
+    )
+    figure_table = evidence.figure or evidence.table or ""
+    row = (
+        f"| {cell(evidence.evidence_code)} | {cell(evidence_type)} | "
+        f"{cell(evidence.locator_note)} | {cell(evidence.page_label)} | "
+        f"{cell(evidence.pdf_page_index)} | {cell(figure_table)} | "
+        f"{cell(evidence.section)} |"
+    )
+    if section is None:
+        addition = [
+            "",
+            "---",
+            "",
+            "## 11. 关键证据与页码定位",
+            "",
+            "| 证据 ID | 类型 | 观点或证据 | 印刷页码 | PDF 页序号 | 图/表 | 备注 |",
+            "|---|---|---|---|---:|---|---|",
+            row,
+            "",
+        ]
+        lines.extend(addition)
+    else:
+        table_start = next(
+            (
+                index
+                for index in range(section + 1, len(lines))
+                if lines[index].lstrip().startswith("|")
+            ),
+            None,
+        )
+        if table_start is None:
+            lines[section + 1 : section + 1] = [
+                "",
+                "| 证据 ID | 类型 | 观点或证据 | 印刷页码 | PDF 页序号 | 图/表 | 备注 |",
+                "|---|---|---|---|---:|---|---|",
+                row,
+            ]
+        else:
+            insertion = table_start
+            while insertion < len(lines) and lines[insertion].lstrip().startswith("|"):
+                insertion += 1
+            lines.insert(insertion, row)
+    suffix = "\n" if markdown.endswith("\n") else ""
+    return "\n".join(lines) + suffix
+
+
+def append_item_evidence_reference(
+    markdown: str,
+    candidate: NoteAnalysisCandidate,
+    evidence_code: str,
+) -> str:
+    """Add an explicit evidence code reference to an anchored item."""
+    fragment = note_item_fragment(markdown, candidate)
+    if evidence_code.upper() in {code.upper() for code in _EVIDENCE_CODE.findall(fragment)}:
+        return markdown
+    replacement = f"{fragment.rstrip()}\n\n- 证据: {evidence_code}"
+    return replace_note_item_fragment(markdown, candidate.candidate_id, replacement)
 
 
 def _source_fingerprint(markdown: str, candidate: NoteAnalysisCandidate) -> str:

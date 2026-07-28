@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "paper_id", "revision", "updated_at", "questions"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "paper_id": {"type": "string", "format": "uuid"},
     "revision": {"type": "integer", "minimum": 1},
     "updated_at": {"type": "string", "format": "date-time"},
@@ -27,17 +27,17 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["evidence_id", "paper_id", "page_label", "pdf_page_index", "section", "figure", "table", "locator_note", "source_item_id"],
-              "properties": {
-                "evidence_id": {"type": "string", "format": "uuid"},
+            "required": ["evidence_id", "evidence_code", "paper_id", "page_label", "pdf_page_index", "section", "figure", "table", "locator_note"],
+            "properties": {
+              "evidence_id": {"type": "string", "format": "uuid"},
+              "evidence_code": {"type": ["string", "null"], "maxLength": 40},
                 "paper_id": {"type": "string", "format": "uuid"},
                 "page_label": {"type": ["string", "null"], "maxLength": 40},
                 "pdf_page_index": {"type": ["integer", "null"], "minimum": 1},
                 "section": {"type": ["string", "null"], "maxLength": 200},
                 "figure": {"type": ["string", "null"], "maxLength": 80},
                 "table": {"type": ["string", "null"], "maxLength": 80},
-                "locator_note": {"type": "string", "maxLength": 2000},
-                "source_item_id": {"type": ["string", "null"], "maxLength": 120}
+                "locator_note": {"type": "string", "maxLength": 2000}
               }
             }
           },

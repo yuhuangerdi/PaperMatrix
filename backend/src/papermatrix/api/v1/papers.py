@@ -7,17 +7,17 @@ from typing import Annotated, cast
 from uuid import UUID
 
 from fastapi import APIRouter, File, Form, Query, Request, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from papermatrix.domain.paper import (
     AnalysisItemKind,
     Paper,
     PaperAnalysisDocument,
     PaperList,
+    ReadingStatus,
     SourceStatus,
     WritingUse,
 )
-from papermatrix.domain.paper_content import EvidenceReference
 from papermatrix.services.paper_service import PaperService, ScanCandidate
 
 router = APIRouter(tags=["papers"])
@@ -63,6 +63,7 @@ class RelinkRequest(BaseModel):
 
 class PaperBasicInformationUpdate(BaseModel):
     title: str = Field(min_length=1, max_length=1000)
+    short_title: str = Field(default="", max_length=200)
     authors: list[str] = Field(default_factory=list)
     affiliations: list[str] = Field(default_factory=list)
     venue: str | None = Field(default=None, max_length=300)
@@ -72,7 +73,13 @@ class PaperBasicInformationUpdate(BaseModel):
     language: str | None = Field(default=None, max_length=50)
     keywords: list[str] = Field(default_factory=list)
     abstract_text: str = Field(default="", max_length=20000)
+    urls: list[str] = Field(default_factory=list)
+    code_url: str | None = None
+    data_url: str | None = None
     group: str | None = Field(default=None, max_length=120)
+    reading_status: ReadingStatus = "unread"
+    importance_score: int | None = Field(default=None, ge=1, le=5)
+    one_sentence_summary: str = Field(default="", max_length=5000)
     expected_revision: int = Field(ge=1)
 
 
@@ -82,11 +89,13 @@ class DeleteResponse(BaseModel):
 
 
 class AnalysisItemInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: AnalysisItemKind
+    display_label: str | None = Field(default=None, max_length=80)
     title: str = Field(min_length=1, max_length=300)
     summary: str = Field(default="", max_length=20000)
     attributes: dict[str, str] = Field(default_factory=dict)
-    evidence_refs: list[EvidenceReference] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     writing_uses: list[WritingUse] = Field(default_factory=list)
     expected_revision: int = Field(ge=1)
@@ -210,10 +219,10 @@ def create_paper_analysis_item(
         project_id,
         paper_id,
         kind=payload.kind,
+        display_label=payload.display_label,
         title=payload.title,
         summary=payload.summary,
         attributes=payload.attributes,
-        evidence_refs=payload.evidence_refs,
         tags=payload.tags,
         writing_uses=payload.writing_uses,
         expected_revision=payload.expected_revision,
@@ -236,10 +245,10 @@ def update_paper_analysis_item(
         paper_id,
         item_id,
         kind=payload.kind,
+        display_label=payload.display_label,
         title=payload.title,
         summary=payload.summary,
         attributes=payload.attributes,
-        evidence_refs=payload.evidence_refs,
         tags=payload.tags,
         writing_uses=payload.writing_uses,
         expected_revision=payload.expected_revision,

@@ -75,7 +75,7 @@
 - `GET /projects/{project_id}/papers/{paper_id}/note/supplement`
 - `PUT /projects/{project_id}/papers/{paper_id}/note/supplement`
 
-新论文登记成功时立即把默认模板写入 `notes/<paper-id>.md`，初始 revision 为 1。已有书目信息只在这次创建中写入第 0 节；之后编辑论文基础信息不会反向覆盖用户的 Markdown。为兼容旧记录，缺少笔记文件时 `GET` 仍可返回 revision 0 的临时模板。Markdown 文件包含 YAML front matter；API 的 `markdown` 字段只返回正文。
+新论文登记成功时立即把默认模板写入 `notes/<paper-id>.md`，初始 revision 为 1。第 0 节不是分析条目，全部由论文概览 YAML 维护；编辑概览会同步该节并递增笔记 revision，完整文档保存也不会用正文中的旧值覆盖概览。为兼容旧记录，缺少笔记文件时 `GET` 仍可返回 revision 0 的临时模板。Markdown 文件包含 YAML front matter；API 的 `markdown` 字段只返回正文。
 
 个人补充笔记使用独立的 `notes/<paper-id>.supplement.md` 和 revision，首次读取返回空 Markdown 与 revision 0。它不参与结构化候选解析或论文 YAML 投影，保存、冲突和失败恢复与主笔记相互独立。
 
@@ -89,10 +89,10 @@
 ### 单篇分析条目
 
 - `GET /projects/{project_id}/papers/{paper_id}/analysis`
-- `POST /projects/{project_id}/papers/{paper_id}/analysis/items`
+- `POST /projects/{project_id}/papers/{paper_id}/analysis/items`（旧版无来源条目兼容接口，新界面不再用于新建）
 - `PATCH/DELETE /projects/{project_id}/papers/{paper_id}/analysis/items/{item_id}`
 
-分析条目写回论文 YAML 的 `structured_summary.items`，与论文共用 revision、文件锁和原子替换。服务端固定证据的 `paper_id` 为当前论文；缺少证据允许保存并由界面标记“待补证据”。
+分析条目写回论文 YAML 的 `structured_summary.items`，与论文共用 revision、文件锁和原子替换。每条证据先保存在 `structured_summary.evidence_catalog`，包含内部 UUID 和可读编号（如 `E-001`）；条目只保存 `evidence_ids` 引用。分析条目的 `display_label` 是用户可选的显示标签，不改变系统 `kind`。笔记第 11 节登记证据，条目正文用 `证据：E-001` 明确引用；手工条目接口不接受证据引用，编辑已有条目也不会改写其引用。系统不得按条目类型关键词推测归属。
 
 结构化笔记解析使用两个独立动作：
 
@@ -103,7 +103,7 @@
 
 候选在论文详情加载和每次笔记保存后的 `GET .../note/items` 中自动生成，该响应同时包含 `candidates`、`warnings` 和待审阅数量。用户打开审阅窗口不会触发首次解析，只读取这份自动解析结果；手动 `parse-note` 端点保留用于兼容和显式刷新。
 
-默认粒度以三级/四级语义标题块为一条，块内段落、列表、键值和表格整体保持在同一条目；不会把表格数据行拆成多个条目。“2.2 代表性顶会顶刊文献”是明确的组合块：三级标题形成一个 `related_work` 条目，文献 A/B/C 等四级标题保留为其内部属性。第 0、9、10、11、12 节分别作为元数据、关系候选、写作用途、证据和阅读问题来源，不复制成普通分析条目。
+默认粒度以三级/四级语义标题块为一条，块内段落、列表、键值和表格整体保持在同一条目；不会把表格数据行拆成多个条目。“2.2 代表性顶会顶刊文献”是可扩展分组，文献 A/B/C 及后续每个四级文献标题分别形成一个 `related_work` 条目。第 0、9、10、11 节分别作为元数据、关系候选、写作用途和证据目录，不复制成普通分析条目。阅读问题仅由问题栏目和 `questions/<paper-id>.yaml` 管理，不再在笔记模板中建立索引。
 
 首次候选 ID 由论文、类型、来源和内容确定性生成。确认后的 `item_id` 复用该 ID，并写入不影响渲染的来源锚点；后续解析优先从锚点恢复 ID，因此正文编辑不会改变条目身份。投影保存固定章节、章节内顺序和来源笔记 revision，但不会覆盖用户之后的人工修改。
 
@@ -111,7 +111,11 @@
 
 完整文档/条目双模式使用以下端点：
 
-- `GET .../note/items` 自动解析当前 Markdown，返回新增/修改候选、删除候选、警告、待审阅数量，以及确认条目的当前片段、来源指纹和 `synced`、`review_required` 或 `missing` 状态；
+- `GET .../note/items` 自动解析当前 Markdown，返回可选模板位置、论文级证据目录、新增/修改候选、删除候选、警告、待审阅数量，以及确认条目的当前片段、来源指纹和 `synced`、`review_required` 或 `missing` 状态；
+- `GET .../note/items` 返回全部固定模板槽位（含空项）、可扩展条目、投影、候选和证据目录；
+- `PUT .../note/slots/{template_key}` 在模板原位置填写或清空固定槽位；
+- `POST .../note/items` 只在后端声明为 `repeatable` 的分组内新增带稳定锚点的 Markdown 标题块和投影；当前用于 2.2 代表性文献、第 4 章挑战和第 5 章创新点，并保证新增块插入模板语义位置；
+- `POST .../note/evidence` 自动分配 `E-xxx`、写入第 11 节和论文证据目录；提供 `item_id` 时同时在当前条目正文写入显式引用并更新投影；
 - `PUT .../note/items/{item_id}` 同时校验两份 revision 与来源指纹，只替换该稳定锚点对应片段，再保存 Markdown 和论文 YAML 投影；
 - `POST .../note/items/delete` 批量删除用户明确选择的完整 Markdown 标题块和对应 YAML 投影；
 - 外部 Markdown 修改由 `parse-note` 返回 `new`、`modified`、`unchanged` 和 `removals`，`import-candidates` 只同步用户明确选择的新增、修改或删除项，并返回新增、已同步、已删除及被组合候选替换的旧条目 ID。

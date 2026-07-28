@@ -3,13 +3,13 @@ import {
   ArrowLeft,
   BookOpenText,
   Check,
-  CheckSquare2,
   Clipboard,
   FileQuestion,
   FileText,
   ListTree,
   Pencil,
   Plus,
+  Quote,
   RefreshCw,
   Save,
   ScanText,
@@ -21,15 +21,14 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, RouterLink, useRoute } from 'vue-router'
 
 import { ApiError } from '@/api/client'
-import AnalysisItemDialog from '@/components/AnalysisItemDialog.vue'
 import MarkdownDocument from '@/components/MarkdownDocument.vue'
 import NoteCandidateReviewDialog from '@/components/NoteCandidateReviewDialog.vue'
 import { usePaperStore } from '@/stores/papers'
 import type {
   AnalysisItem,
-  AnalysisItemInput,
   EvidenceReference,
   NoteItemDocument,
+  NoteItemSlot,
   NoteItemSource,
   NoteParsePreview,
   Paper,
@@ -81,15 +80,16 @@ const busy = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 const editOpen = ref(false)
+const noteItemCreateOpen = ref(false)
+const evidenceOpen = ref(false)
 const questionOpen = ref(false)
-const analysisOpen = ref(false)
 const candidateReviewOpen = ref(false)
 const candidatePreview = ref<NoteParsePreview | null>(null)
-const editingAnalysisItem = ref<AnalysisItem | null>(null)
 const editingQuestionId = ref<string | null>(null)
 const questionInitial = ref('')
 const editForm = ref({
   title: '',
+  shortTitle: '',
   authors: '',
   affiliations: '',
   venue: '',
@@ -99,7 +99,28 @@ const editForm = ref({
   language: '',
   keywords: '',
   abstractText: '',
+  paperUrl: '',
+  codeUrl: '',
+  dataUrl: '',
   group: '',
+  readingStatus: 'unread' as Paper['organization']['reading_status'],
+  importanceScore: '',
+  oneSentenceSummary: '',
+})
+const noteItemCreateForm = ref({
+  templateKey: '',
+  title: '',
+  markdown: '',
+})
+const evidenceForm = ref({
+  evidenceType: '',
+  locatorNote: '',
+  pageLabel: '',
+  pdfPageIndex: '',
+  section: '',
+  figure: '',
+  table: '',
+  attachToCurrentItem: true,
 })
 const questionForm = ref<QuestionInput>(emptyQuestion())
 let saveTimer = 0
@@ -135,13 +156,42 @@ const hasUnsavedNote = computed(
     noteItemDirty.value,
 )
 const selectedNoteItem = computed(
-  () => noteItems.value?.items.find((item) => item.item_id === selectedNoteItemId.value) ?? null,
+  () => noteItems.value?.slots.find((item) => item.slot_key === selectedNoteItemId.value) ?? null,
 )
+const selectedAnalysisItem = computed(
+  () =>
+    analysis.value?.items.find((item) => item.item_id === selectedNoteItem.value?.item_id) ?? null,
+)
+const selectedEvidenceIds = computed(() => new Set(selectedAnalysisItem.value?.evidence_ids ?? []))
 const favoriteNoteItems = computed(
   () => noteItems.value?.items.filter((item) => item.is_favorite) ?? [],
 )
+const noteSlotGroups = computed(() => {
+  const groups = new Map<string, NoteItemSlot[]>()
+  for (const slot of noteItems.value?.slots ?? []) {
+    groups.set(slot.section_title, [...(groups.get(slot.section_title) ?? []), slot])
+  }
+  return [...groups.entries()].map(([title, slots]) => ({ title, slots }))
+})
 const canSaveNoteItem = computed(
-  () => noteItemDirty.value && selectedNoteItem.value?.sync_status === 'synced' && !busy.value,
+  () => noteItemDirty.value && selectedNoteItem.value?.sync_status !== 'missing' && !busy.value,
+)
+const selectedNoteItemNeedsAttention = computed(
+  () =>
+    selectedNoteItem.value?.sync_status === 'review_required' ||
+    selectedNoteItem.value?.sync_status === 'missing',
+)
+const canCreateNoteItem = computed(
+  () =>
+    !busy.value &&
+    Boolean(noteItemCreateForm.value.templateKey) &&
+    Boolean(noteItemCreateForm.value.title.trim()),
+)
+const selectedCreateTemplate = computed(
+  () =>
+    noteItems.value?.item_templates.find(
+      (template) => template.template_key === noteItemCreateForm.value.templateKey,
+    ) ?? null,
 )
 const canSaveSupplement = computed(
   () =>
@@ -163,13 +213,12 @@ const sourceLabel = computed(
     })[paper.value?.source.status ?? 'unlinked'],
 )
 const analysisWithEvidence = computed(
-  () =>
-    analysis.value?.items.filter((item) => displayableEvidence(item.evidence_refs).length > 0)
-      .length ?? 0,
+  () => analysis.value?.items.filter((item) => resolvedEvidence(item).length > 0).length ?? 0,
 )
 
 function emptyEvidence(): EvidenceReference {
   return {
+    evidence_code: null,
     paper_id: paperId.value,
     page_label: null,
     pdf_page_index: null,
@@ -177,7 +226,6 @@ function emptyEvidence(): EvidenceReference {
     figure: null,
     table: null,
     locator_note: '',
-    source_item_id: null,
   }
 }
 
@@ -219,10 +267,25 @@ function evidenceLabel(evidence: EvidenceReference) {
   return parts.join(' · ')
 }
 
+function evidenceLocation(evidence: EvidenceReference) {
+  return evidenceLabel({ ...evidence, locator_note: '' }) || '未填写页码或图表位置'
+}
+
 function displayableEvidence(evidence: EvidenceReference[]) {
   return evidence
     .map((item) => ({ item, label: evidenceLabel(item) }))
     .filter((entry) => entry.label.length > 0)
+}
+
+function resolvedEvidence(item: AnalysisItem) {
+  const evidenceById = new Map(
+    (analysis.value?.evidence_catalog ?? [])
+      .filter((evidence) => evidence.evidence_id)
+      .map((evidence) => [evidence.evidence_id as string, evidence]),
+  )
+  return item.evidence_ids
+    .map((evidenceId) => evidenceById.get(evidenceId))
+    .filter((evidence): evidence is EvidenceReference => evidence !== undefined)
 }
 
 function displayAnalysisText(value: string) {
@@ -459,17 +522,19 @@ async function copySupplement() {
 
 function selectInitialNoteItem(document: NoteItemDocument) {
   const selected =
-    document.items.find((item) => item.item_id === selectedNoteItemId.value) ??
-    document.items[0] ??
+    document.slots.find((item) => item.slot_key === selectedNoteItemId.value) ??
+    document.slots[0] ??
     null
-  selectedNoteItemId.value = selected?.item_id ?? null
+  selectedNoteItemId.value = selected?.slot_key ?? null
   noteItemDraft.value = selected?.markdown ?? ''
   savedNoteItemDraft.value = selected?.markdown ?? ''
 }
 
 function applyNoteItems(document: NoteItemDocument) {
   noteItems.value = document
-  const currentIds = new Set(document.items.map((item) => item.item_id))
+  const currentIds = new Set(
+    document.slots.flatMap((item) => (item.can_delete && item.item_id ? [item.item_id] : [])),
+  )
   selectedNoteItemIds.value = selectedNoteItemIds.value.filter((itemId) => currentIds.has(itemId))
   candidatePreview.value = {
     paper_id: document.paper_id,
@@ -482,19 +547,14 @@ function applyNoteItems(document: NoteItemDocument) {
   selectInitialNoteItem(document)
 }
 
-function toggleAllNoteItems() {
-  const itemIds = noteItems.value?.items.map((item) => item.item_id) ?? []
-  selectedNoteItemIds.value = selectedNoteItemIds.value.length === itemIds.length ? [] : itemIds
-}
-
 async function reloadNoteItems() {
   const document = await paperStore.getNoteItems(projectId.value, paperId.value)
   applyNoteItems(document)
 }
 
-function selectNoteItem(item: NoteItemSource) {
+function selectNoteItem(item: NoteItemSlot) {
   if (noteItemDirty.value && !window.confirm('放弃当前条目尚未保存的修改吗？')) return
-  selectedNoteItemId.value = item.item_id
+  selectedNoteItemId.value = item.slot_key
   noteItemDraft.value = item.markdown
   savedNoteItemDraft.value = item.markdown
   noteItemEditing.value = false
@@ -516,36 +576,57 @@ function switchNoteMode(mode: NoteMode) {
 }
 
 function openFavoriteNoteItem(item: NoteItemSource) {
-  selectedNoteItemId.value = item.item_id
-  noteItemDraft.value = item.markdown
-  savedNoteItemDraft.value = item.markdown
+  const slot = noteItems.value?.slots.find((entry) => entry.item_id === item.item_id)
+  if (!slot) {
+    errorMessage.value = '这个收藏条目没有可编辑的模板位置。'
+    return
+  }
+  selectedNoteItemId.value = slot.slot_key
+  noteItemDraft.value = slot.markdown
+  savedNoteItemDraft.value = slot.markdown
   noteItemEditing.value = false
   noteMode.value = 'items'
 }
 
-async function saveNoteItem() {
-  const item = selectedNoteItem.value
-  if (
-    !item ||
-    !noteItems.value ||
-    !item.source_fingerprint ||
-    item.sync_status !== 'synced' ||
-    !noteItemDirty.value
-  ) {
+function openAnalysisSource(item?: AnalysisItem) {
+  activeTab.value = 'note'
+  noteMode.value = 'items'
+  if (!item) {
     return
   }
+  const source = noteItems.value?.slots.find((entry) => entry.item_id === item.item_id)
+  if (!source) {
+    errorMessage.value = '这个历史条目没有模板正文来源，不能在条目模式中编辑。'
+    return
+  }
+  selectNoteItem(source)
+}
+
+async function saveNoteItem() {
+  const slot = selectedNoteItem.value
+  if (!slot || !noteItems.value || slot.sync_status === 'missing' || !noteItemDirty.value) return
   busy.value = true
   errorMessage.value = ''
   try {
-    const result = await paperStore.updateNoteItem(
-      projectId.value,
-      paperId.value,
-      item.item_id,
-      noteItemDraft.value,
-      noteItems.value.note_revision,
-      noteItems.value.paper_revision,
-      item.source_fingerprint,
-    )
+    const result =
+      slot.repeatable && slot.can_delete && slot.item_id && slot.source_fingerprint
+        ? await paperStore.updateNoteItem(
+            projectId.value,
+            paperId.value,
+            slot.item_id,
+            noteItemDraft.value,
+            noteItems.value.note_revision,
+            noteItems.value.paper_revision,
+            slot.source_fingerprint,
+          )
+        : await paperStore.updateNoteSlot(
+            projectId.value,
+            paperId.value,
+            slot.template_key,
+            noteItemDraft.value,
+            noteItems.value.note_revision,
+            noteItems.value.paper_revision,
+          )
     note.value = result.note
     noteDraft.value = result.note.markdown
     savedDraft.value = result.note.markdown
@@ -555,7 +636,7 @@ async function saveNoteItem() {
       .then(() => true)
       .catch(() => false)
     if (refreshed) {
-      successMessage.value = '条目正文和分析投影已同步保存。'
+      successMessage.value = `${slot.label}已保存到模板原位置。`
       noteItemEditing.value = false
     } else {
       noteMode.value = 'document'
@@ -569,8 +650,11 @@ async function saveNoteItem() {
   }
 }
 
-async function updateNoteItemFavorite(item: NoteItemSource, isFavorite = !item.is_favorite) {
-  if (!noteItems.value) return
+async function updateNoteItemFavorite(
+  item: { item_id: string | null; is_favorite: boolean },
+  isFavorite = !item.is_favorite,
+) {
+  if (!noteItems.value || !item.item_id) return
   busy.value = true
   errorMessage.value = ''
   try {
@@ -629,10 +713,136 @@ async function deleteNoteItems(itemIds: string[]) {
   }
 }
 
+function openNoteItemCreate(templateKey?: string | null) {
+  if (!noteItems.value?.item_templates.length) return
+  const selectedTemplateKey =
+    templateKey ??
+    selectedNoteItem.value?.repeatable_template_key ??
+    noteItems.value.item_templates[0]?.template_key ??
+    ''
+  const template =
+    noteItems.value.item_templates.find((item) => item.template_key === selectedTemplateKey) ??
+    noteItems.value.item_templates[0]
+  noteItemCreateForm.value = {
+    templateKey: template?.template_key ?? '',
+    title: '',
+    markdown: template?.body_template ?? '',
+  }
+  noteItemCreateOpen.value = true
+}
+
+function changeNoteItemCreateTemplate() {
+  noteItemCreateForm.value.markdown = selectedCreateTemplate.value?.body_template ?? ''
+}
+
+async function createNoteItem() {
+  if (
+    !noteItems.value ||
+    !noteItemCreateForm.value.templateKey ||
+    !noteItemCreateForm.value.title.trim()
+  ) {
+    return
+  }
+  busy.value = true
+  errorMessage.value = ''
+  try {
+    const result = await paperStore.createNoteItem(
+      projectId.value,
+      paperId.value,
+      {
+        template_key: noteItemCreateForm.value.templateKey,
+        title: noteItemCreateForm.value.title.trim(),
+        markdown: noteItemCreateForm.value.markdown.trim(),
+      },
+      noteItems.value.note_revision,
+      noteItems.value.paper_revision,
+    )
+    note.value = result.note
+    noteDraft.value = result.note.markdown
+    savedDraft.value = result.note.markdown
+    analysis.value = result.analysis
+    syncPaperRevision(result.analysis)
+    await reloadNoteItems()
+    const createdSlot = noteItems.value?.slots.find((slot) => slot.item_id === result.item.item_id)
+    if (createdSlot) {
+      selectNoteItem(createdSlot)
+      noteItemEditing.value = true
+    }
+    noteItemCreateOpen.value = false
+    successMessage.value = `${selectedCreateTemplate.value?.label ?? '条目'}已加入模板对应位置。`
+  } catch (error: unknown) {
+    errorMessage.value = error instanceof ApiError ? error.message : '添加条目失败，请刷新后重试。'
+  } finally {
+    busy.value = false
+  }
+}
+
+function openEvidenceCreate() {
+  if (noteItemDirty.value) {
+    errorMessage.value = '请先保存当前条目，再添加证据。'
+    return
+  }
+  evidenceForm.value = {
+    evidenceType: '',
+    locatorNote: '',
+    pageLabel: '',
+    pdfPageIndex: '',
+    section: '',
+    figure: '',
+    table: '',
+    attachToCurrentItem:
+      selectedNoteItem.value?.sync_status === 'synced' && !!selectedNoteItem.value.item_id,
+  }
+  evidenceOpen.value = true
+}
+
+async function createEvidence() {
+  if (!noteItems.value || !evidenceForm.value.locatorNote.trim()) return
+  busy.value = true
+  errorMessage.value = ''
+  try {
+    const result = await paperStore.createEvidence(
+      projectId.value,
+      paperId.value,
+      {
+        item_id:
+          evidenceForm.value.attachToCurrentItem && selectedNoteItem.value?.item_id
+            ? selectedNoteItem.value.item_id
+            : null,
+        evidence_type: evidenceForm.value.evidenceType.trim(),
+        page_label: evidenceForm.value.pageLabel.trim() || null,
+        pdf_page_index:
+          evidenceForm.value.pdfPageIndex === '' ? null : Number(evidenceForm.value.pdfPageIndex),
+        section: evidenceForm.value.section.trim() || null,
+        figure: evidenceForm.value.figure.trim() || null,
+        table: evidenceForm.value.table.trim() || null,
+        locator_note: evidenceForm.value.locatorNote.trim(),
+      },
+      noteItems.value.note_revision,
+      noteItems.value.paper_revision,
+    )
+    note.value = result.note
+    noteDraft.value = result.note.markdown
+    savedDraft.value = result.note.markdown
+    analysis.value = result.analysis
+    syncPaperRevision(result.analysis)
+    await reloadNoteItems()
+    evidenceOpen.value = false
+    successMessage.value = result.item
+      ? `${result.evidence.evidence_code} 已加入证据目录并关联当前条目。`
+      : `${result.evidence.evidence_code} 已加入论文证据目录。`
+  } catch (error: unknown) {
+    errorMessage.value = error instanceof ApiError ? error.message : '添加证据失败，请刷新后重试。'
+  } finally {
+    busy.value = false
+  }
+}
+
 function openPaperEdit() {
   if (!paper.value) return
   editForm.value = {
     title: paper.value.bibliography.title,
+    shortTitle: paper.value.bibliography.short_title,
     authors: paper.value.bibliography.authors.join(', '),
     affiliations: paper.value.bibliography.affiliations.join(', '),
     venue: paper.value.bibliography.venue ?? '',
@@ -645,7 +855,16 @@ function openPaperEdit() {
     language: paper.value.bibliography.language ?? '',
     keywords: paper.value.bibliography.keywords.join(', '),
     abstractText: paper.value.bibliography.abstract_text,
+    paperUrl: paper.value.bibliography.urls[0] ?? '',
+    codeUrl: paper.value.bibliography.code_url ?? '',
+    dataUrl: paper.value.bibliography.data_url ?? '',
     group: paper.value.organization.group ?? '',
+    readingStatus: paper.value.organization.reading_status,
+    importanceScore:
+      paper.value.organization.importance_score == null
+        ? ''
+        : String(paper.value.organization.importance_score),
+    oneSentenceSummary: paper.value.organization.one_sentence_summary,
   }
   editOpen.value = true
 }
@@ -657,6 +876,7 @@ async function savePaper() {
   try {
     paper.value = await paperStore.updateBasicInformation(projectId.value, paper.value, {
       title: editForm.value.title,
+      short_title: editForm.value.shortTitle,
       authors: splitValues(editForm.value.authors),
       affiliations: splitValues(editForm.value.affiliations),
       venue: editForm.value.venue || null,
@@ -667,9 +887,23 @@ async function savePaper() {
       language: editForm.value.language || null,
       keywords: splitValues(editForm.value.keywords),
       abstract_text: editForm.value.abstractText,
+      urls: editForm.value.paperUrl.trim() ? [editForm.value.paperUrl.trim()] : [],
+      code_url: editForm.value.codeUrl || null,
+      data_url: editForm.value.dataUrl || null,
       group: editForm.value.group || null,
+      reading_status: editForm.value.readingStatus,
+      importance_score:
+        editForm.value.importanceScore === '' ? null : Number(editForm.value.importanceScore),
+      one_sentence_summary: editForm.value.oneSentenceSummary,
     })
     if (analysis.value) analysis.value.revision = paper.value.revision
+    const [freshNote] = await Promise.all([
+      paperStore.getNote(projectId.value, paperId.value),
+      reloadNoteItems(),
+    ])
+    note.value = freshNote
+    noteDraft.value = freshNote.markdown
+    savedDraft.value = freshNote.markdown
     editOpen.value = false
     successMessage.value = '论文基础信息已保存。'
   } catch (error: unknown) {
@@ -776,9 +1010,8 @@ function analysisKindLabel(kind: AnalysisItem['kind']) {
   }[kind]
 }
 
-function openAnalysisItem(item: AnalysisItem | null = null) {
-  editingAnalysisItem.value = item
-  analysisOpen.value = true
+function displayItemLabel(item: { kind: AnalysisItem['kind']; display_label?: string | null }) {
+  return item.display_label || analysisKindLabel(item.kind)
 }
 
 function syncPaperRevision(document: PaperAnalysisDocument) {
@@ -791,51 +1024,6 @@ function syncPaperRevision(document: PaperAnalysisDocument) {
       ...paper.value.structured_summary,
       items: document.items,
     },
-  }
-}
-
-async function saveAnalysisItem(input: AnalysisItemInput) {
-  if (!analysis.value) return
-  busy.value = true
-  errorMessage.value = ''
-  try {
-    analysis.value = editingAnalysisItem.value
-      ? await paperStore.updateAnalysisItem(
-          projectId.value,
-          paperId.value,
-          editingAnalysisItem.value.item_id,
-          input,
-          analysis.value.revision,
-        )
-      : await paperStore.createAnalysisItem(
-          projectId.value,
-          paperId.value,
-          input,
-          analysis.value.revision,
-        )
-    syncPaperRevision(analysis.value)
-    analysisOpen.value = false
-    successMessage.value = editingAnalysisItem.value ? '分析条目已更新。' : '分析条目已添加。'
-  } catch (error: unknown) {
-    errorMessage.value = error instanceof ApiError ? error.message : '分析条目保存失败。'
-  } finally {
-    busy.value = false
-  }
-}
-
-async function deleteAnalysisItem(item: AnalysisItem) {
-  if (!analysis.value || !window.confirm(`删除分析条目“${item.title}”吗？`)) return
-  try {
-    analysis.value = await paperStore.deleteAnalysisItem(
-      projectId.value,
-      paperId.value,
-      item.item_id,
-      analysis.value.revision,
-    )
-    syncPaperRevision(analysis.value)
-    successMessage.value = '分析条目已删除。'
-  } catch (error: unknown) {
-    errorMessage.value = error instanceof ApiError ? error.message : '分析条目删除失败。'
   }
 }
 
@@ -1053,6 +1241,9 @@ onBeforeUnmount(() => {
       </div>
       <div class="detail-section">
         <h2>摘要与关键词</h2>
+        <p class="overview-summary">
+          {{ paper.organization.one_sentence_summary || '尚未填写一句话总结。' }}
+        </p>
         <p class="abstract-text">{{ paper.bibliography.abstract_text || '尚未填写摘要。' }}</p>
         <div class="tag-list">
           <span v-for="keyword in paper.bibliography.keywords" :key="keyword">{{ keyword }}</span>
@@ -1061,7 +1252,11 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section v-else-if="activeTab === 'note'" class="note-workspace">
+    <section
+      v-else-if="activeTab === 'note'"
+      class="note-workspace"
+      :class="{ 'note-workspace--items': noteMode === 'items' }"
+    >
       <header class="note-toolbar">
         <div>
           <strong>Markdown 结构化笔记</strong>
@@ -1148,9 +1343,17 @@ onBeforeUnmount(() => {
         <aside class="note-item-list">
           <header>
             <div>
-              <strong>确认条目</strong>
-              <small>{{ noteItems?.items.length ?? 0 }} 条</small>
+              <strong>模板目录</strong>
+              <small>{{ noteItems?.slots.length ?? 0 }} 项</small>
             </div>
+            <button
+              class="button button--secondary button--compact"
+              type="button"
+              :disabled="busy || !noteItems?.item_templates.length"
+              @click="openNoteItemCreate()"
+            >
+              <Plus :size="14" /> 添加可拓展条目
+            </button>
             <button
               v-if="noteItems?.pending_candidate_count"
               class="button button--secondary button--compact"
@@ -1160,18 +1363,7 @@ onBeforeUnmount(() => {
             >
               审阅 {{ noteItems.pending_candidate_count }} 项变化
             </button>
-            <div v-if="noteItems?.items.length" class="note-item-bulk-actions">
-              <button
-                class="button button--secondary button--compact"
-                type="button"
-                :disabled="busy"
-                @click="toggleAllNoteItems"
-              >
-                <CheckSquare2 :size="14" />
-                {{
-                  selectedNoteItemIds.length === noteItems.items.length ? '取消全选' : '选择全部'
-                }}
-              </button>
+            <div v-if="selectedNoteItemIds.length" class="note-item-bulk-actions">
               <button
                 class="button button--danger button--compact"
                 type="button"
@@ -1182,64 +1374,55 @@ onBeforeUnmount(() => {
               </button>
             </div>
           </header>
-          <div v-if="noteItems?.items.length === 0" class="empty-state empty-state--compact">
-            <p v-if="noteItems.note_revision === 0">填写并保存结构化文档后将自动解析候选。</p>
-            <p v-else-if="noteItems.pending_candidate_count">
-              已自动解析 {{ noteItems.pending_candidate_count }} 项候选，确认后可在条目模式编辑。
-            </p>
-            <p v-else>文档已自动解析，暂未发现可确认的结构化内容。</p>
-            <button
-              v-if="noteItems.pending_candidate_count"
-              class="button button--secondary"
-              type="button"
-              @click="openCandidateReview"
-            >
-              <ScanText :size="16" /> 审阅自动解析结果
-            </button>
-          </div>
-          <div v-if="noteItems?.items.length" class="note-item-list-scroll" tabindex="0">
-            <div
-              v-for="item in noteItems.items"
-              :key="item.item_id"
-              class="note-item-list-row"
-              :class="{ active: item.item_id === selectedNoteItemId }"
-            >
-              <input
-                v-model="selectedNoteItemIds"
-                type="checkbox"
-                :value="item.item_id"
-                :aria-label="`选择 ${item.title}`"
-                :disabled="busy"
-              />
-              <button
-                class="icon-button note-item-favorite-toggle"
-                type="button"
-                :aria-label="item.is_favorite ? `取消收藏 ${item.title}` : `收藏 ${item.title}`"
-                :title="item.is_favorite ? '取消重点收藏' : '加入重点收藏'"
-                :disabled="busy"
-                @click.stop="updateNoteItemFavorite(item)"
+          <div v-if="noteSlotGroups.length" class="note-item-list-scroll" tabindex="0">
+            <section v-for="group in noteSlotGroups" :key="group.title" class="note-slot-group">
+              <h3>{{ group.title }}</h3>
+              <div
+                v-for="item in group.slots"
+                :key="item.slot_key"
+                class="note-item-list-row"
+                :class="{ active: item.slot_key === selectedNoteItemId }"
               >
-                <Star :size="15" :fill="item.is_favorite ? 'currentColor' : 'none'" />
-              </button>
-              <button type="button" class="note-item-list-entry" @click="selectNoteItem(item)">
-                <span>
-                  <strong>{{ item.title }}</strong>
-                  <small>
-                    {{ item.section_title || '未绑定章节' }}
-                    <template v-if="item.section_order"> · 第 {{ item.section_order }} 条</template>
-                  </small>
-                </span>
-                <span class="note-sync-state" :class="`note-sync-state--${item.sync_status}`">
-                  {{
-                    item.sync_status === 'synced'
-                      ? '已同步'
-                      : item.sync_status === 'review_required'
-                        ? '待审阅'
-                        : '来源缺失'
-                  }}
-                </span>
-              </button>
-            </div>
+                <input
+                  v-if="item.can_delete && item.item_id"
+                  v-model="selectedNoteItemIds"
+                  type="checkbox"
+                  :value="item.item_id"
+                  :aria-label="`选择 ${item.label}`"
+                  :disabled="busy"
+                />
+                <span v-else class="note-item-row-spacer" aria-hidden="true" />
+                <button
+                  v-if="item.item_id"
+                  class="icon-button note-item-favorite-toggle"
+                  type="button"
+                  :aria-label="item.is_favorite ? `取消收藏 ${item.label}` : `收藏 ${item.label}`"
+                  :title="item.is_favorite ? '取消重点收藏' : '加入重点收藏'"
+                  :disabled="busy"
+                  @click.stop="updateNoteItemFavorite(item)"
+                >
+                  <Star :size="15" :fill="item.is_favorite ? 'currentColor' : 'none'" />
+                </button>
+                <span v-else class="note-item-row-spacer" aria-hidden="true" />
+                <button type="button" class="note-item-list-entry" @click="selectNoteItem(item)">
+                  <span>
+                    <strong>{{ item.template_key }} · {{ item.label }}</strong>
+                    <small>{{ item.description }}</small>
+                  </span>
+                  <span class="note-sync-state" :class="`note-sync-state--${item.sync_status}`">
+                    {{
+                      item.sync_status === 'synced'
+                        ? '已填写'
+                        : item.sync_status === 'empty'
+                          ? '待填写'
+                          : item.sync_status === 'review_required'
+                            ? '待同步'
+                            : '位置缺失'
+                    }}
+                  </span>
+                </button>
+              </div>
+            </section>
           </div>
         </aside>
         <main class="note-item-editor-pane">
@@ -1251,18 +1434,24 @@ onBeforeUnmount(() => {
           <template v-else>
             <header>
               <div>
-                <span class="analysis-kind">{{ analysisKindLabel(selectedNoteItem.kind) }}</span>
-                <h2>{{ selectedNoteItem.title }}</h2>
+                <span class="analysis-kind">{{ displayItemLabel(selectedNoteItem) }}</span>
+                <h2>{{ selectedNoteItem.template_key }} · {{ selectedNoteItem.label }}</h2>
+                <p>{{ selectedNoteItem.description }}</p>
               </div>
               <div class="note-item-editor-actions">
-                <small>条目 ID {{ selectedNoteItem.item_id }}</small>
+                <small>
+                  {{
+                    selectedNoteItem.item_id ? `条目 ID ${selectedNoteItem.item_id}` : '尚未填写'
+                  }}
+                </small>
                 <button
+                  v-if="selectedNoteItem.item_id"
                   class="icon-button note-item-favorite-toggle"
                   type="button"
                   :aria-label="
                     selectedNoteItem.is_favorite
-                      ? `取消收藏 ${selectedNoteItem.title}`
-                      : `收藏 ${selectedNoteItem.title}`
+                      ? `取消收藏 ${selectedNoteItem.label}`
+                      : `收藏 ${selectedNoteItem.label}`
                   "
                   :title="selectedNoteItem.is_favorite ? '取消重点收藏' : '加入重点收藏'"
                   :disabled="busy"
@@ -1271,6 +1460,7 @@ onBeforeUnmount(() => {
                   <Star :size="16" :fill="selectedNoteItem.is_favorite ? 'currentColor' : 'none'" />
                 </button>
                 <button
+                  v-if="selectedNoteItem.can_delete && selectedNoteItem.item_id"
                   class="icon-button icon-button--danger"
                   type="button"
                   aria-label="删除当前条目"
@@ -1280,29 +1470,46 @@ onBeforeUnmount(() => {
                   <Trash2 :size="16" />
                 </button>
                 <button
+                  v-if="selectedNoteItem.repeatable_template_key"
                   class="button button--secondary button--compact"
                   type="button"
-                  :disabled="selectedNoteItem.sync_status !== 'synced'"
+                  :disabled="busy"
+                  @click="openNoteItemCreate(selectedNoteItem.repeatable_template_key)"
+                >
+                  <Plus :size="14" /> 添加同类条目
+                </button>
+                <button
+                  class="button button--secondary button--compact"
+                  type="button"
+                  :disabled="
+                    busy || selectedNoteItem.sync_status !== 'synced' || !selectedNoteItem.item_id
+                  "
+                  @click="openEvidenceCreate"
+                >
+                  <Quote :size="14" /> 添加证据
+                </button>
+                <button
+                  class="button button--secondary button--compact"
+                  type="button"
+                  :disabled="selectedNoteItem.sync_status === 'missing'"
                   @click="noteItemEditing = !noteItemEditing"
                 >
                   <Pencil :size="14" /> {{ noteItemEditing ? '返回阅读' : '编辑' }}
                 </button>
               </div>
             </header>
-            <div
-              v-if="selectedNoteItem.sync_status !== 'synced'"
-              class="note-review-required"
-              role="status"
-            >
+            <div v-if="selectedNoteItemNeedsAttention" class="note-review-required" role="status">
               <strong>
                 {{
-                  selectedNoteItem.sync_status === 'missing'
-                    ? '稳定来源锚点缺失'
-                    : '完整文档已发生变化'
+                  selectedNoteItem.sync_status === 'missing' ? '模板位置缺失' : '已有内容尚未同步'
                 }}
               </strong>
-              <p>请先通过候选差异审阅确认变化，系统不会用旧投影覆盖当前 Markdown。</p>
+              <p v-if="selectedNoteItem.sync_status === 'missing'">
+                当前笔记缺少这个模板标题，请在完整文档中恢复模板结构。
+              </p>
+              <p v-else>编辑并保存此模板槽位，即可在原位置确认内容并同步分析投影。</p>
               <button
+                v-if="selectedNoteItem.sync_status === 'missing'"
                 class="button button--secondary button--compact"
                 type="button"
                 @click="openCandidateReview"
@@ -1316,18 +1523,64 @@ onBeforeUnmount(() => {
               class="note-editor note-item-editor"
               aria-label="结构化笔记条目正文"
               spellcheck="false"
-              :disabled="selectedNoteItem.sync_status !== 'synced'"
+              :disabled="selectedNoteItem.sync_status === 'missing'"
             />
+            <div v-else-if="!noteItemDraft.trim()" class="note-slot-empty">
+              <ListTree :size="24" />
+              <p>这个模板项还没有内容。点击“编辑”后直接填写。</p>
+            </div>
             <MarkdownDocument v-else class="note-item-document-view" :markdown="noteItemDraft" />
             <footer>
               {{
                 noteItemEditing
-                  ? '只更新此稳定锚点对应的 Markdown 片段；其他章节和段落不会重排。'
-                  : '这是该稳定锚点对应的格式化正文；点击编辑才会打开 Markdown 源码。'
+                  ? '只更新这个模板标题下的正文；标题位置和其他章节不会移动。'
+                  : '这是模板原位置的正文预览；空项也会保留在目录中等待填写。'
               }}
             </footer>
           </template>
         </main>
+        <aside class="note-evidence-panel">
+          <header>
+            <div>
+              <strong>证据目录</strong>
+              <small>{{ noteItems?.evidence_catalog.length ?? 0 }} 条</small>
+            </div>
+            <button
+              class="button button--secondary button--compact"
+              type="button"
+              :disabled="busy || !noteItems"
+              @click="openEvidenceCreate"
+            >
+              <Plus :size="14" /> 添加证据
+            </button>
+          </header>
+          <p class="note-evidence-intro">
+            证据属于整篇论文；从当前条目添加时会同时写入证据编号引用。
+          </p>
+          <div v-if="noteItems?.evidence_catalog.length" class="note-evidence-list">
+            <article
+              v-for="evidence in noteItems.evidence_catalog"
+              :key="evidence.evidence_id"
+              :class="{
+                'note-evidence-card--linked':
+                  evidence.evidence_id && selectedEvidenceIds.has(evidence.evidence_id),
+              }"
+            >
+              <header>
+                <strong>{{ evidence.evidence_code }}</strong>
+                <span v-if="evidence.evidence_id && selectedEvidenceIds.has(evidence.evidence_id)">
+                  当前条目
+                </span>
+              </header>
+              <p>{{ evidence.locator_note || '未填写证据内容' }}</p>
+              <small>{{ evidenceLocation(evidence) }}</small>
+            </article>
+          </div>
+          <div v-else class="note-evidence-empty">
+            <Quote :size="22" />
+            <p>还没有证据。阅读到关键结论、数据或局限时，可在这里登记。</p>
+          </div>
+        </aside>
       </div>
       <section v-else class="note-favorites-mode">
         <header>
@@ -1345,7 +1598,7 @@ onBeforeUnmount(() => {
           <article v-for="item in favoriteNoteItems" :key="item.item_id">
             <div class="note-favorite-content">
               <button type="button" class="note-favorite-entry" @click="openFavoriteNoteItem(item)">
-                <span class="analysis-kind">{{ analysisKindLabel(item.kind) }}</span>
+                <span class="analysis-kind">{{ displayItemLabel(item) }}</span>
                 <strong>{{ item.title }}</strong>
                 <small>
                   {{ item.section_title || '未绑定章节' }}
@@ -1478,8 +1731,8 @@ onBeforeUnmount(() => {
         <div>
           <h2>可比较的分析</h2>
           <p>
-            {{ analysis?.items.length ?? 0 }} 条记录，{{ analysisWithEvidence }} 条已有引用记录；
-            待补引用条目会明确标记。
+            {{ analysis?.items.length ?? 0 }} 条记录，{{ analysisWithEvidence }} 条已有证据；
+            待补证据条目会明确标记。
           </p>
         </div>
         <div class="analysis-header-actions">
@@ -1496,8 +1749,8 @@ onBeforeUnmount(() => {
             <Check :size="17" />
             {{ noteItems?.note_revision === 0 ? '保存笔记后自动解析' : '笔记已自动解析' }}
           </button>
-          <button class="button button--primary" type="button" @click="openAnalysisItem()">
-            <Plus :size="17" /> 添加条目
+          <button class="button button--primary" type="button" @click="openAnalysisSource()">
+            <ListTree :size="17" /> 打开模板目录
           </button>
         </div>
       </header>
@@ -1510,17 +1763,17 @@ onBeforeUnmount(() => {
         <article v-for="item in analysis?.items" :key="item.item_id">
           <header>
             <div>
-              <span class="analysis-kind">{{ analysisKindLabel(item.kind) }}</span>
+              <span class="analysis-kind">{{ displayItemLabel(item) }}</span>
               <span
                 class="evidence-state"
                 :class="{
-                  'evidence-state--missing': displayableEvidence(item.evidence_refs).length === 0,
+                  'evidence-state--missing': resolvedEvidence(item).length === 0,
                 }"
               >
                 {{
-                  displayableEvidence(item.evidence_refs).length
-                    ? `${displayableEvidence(item.evidence_refs).length} 条引用`
-                    : '待补引用'
+                  resolvedEvidence(item).length
+                    ? `${resolvedEvidence(item).length} 条证据`
+                    : '待补证据'
                 }}
               </span>
             </div>
@@ -1528,8 +1781,8 @@ onBeforeUnmount(() => {
               <button
                 class="icon-button"
                 type="button"
-                :aria-label="`编辑 ${item.title}`"
-                @click="openAnalysisItem(item)"
+                :aria-label="`打开 ${item.title} 的模板正文`"
+                @click="openAnalysisSource(item)"
               >
                 <Pencil :size="16" />
               </button>
@@ -1537,7 +1790,7 @@ onBeforeUnmount(() => {
                 class="icon-button icon-button--danger"
                 type="button"
                 :aria-label="`删除 ${item.title}`"
-                @click="deleteAnalysisItem(item)"
+                @click="deleteNoteItems([item.item_id])"
               >
                 <Trash2 :size="16" />
               </button>
@@ -1592,9 +1845,9 @@ onBeforeUnmount(() => {
               </div>
             </dl>
           </div>
-          <div v-if="displayableEvidence(item.evidence_refs).length" class="evidence-list">
+          <div v-if="displayableEvidence(resolvedEvidence(item)).length" class="evidence-list">
             <span
-              v-for="{ item: evidence, label } in displayableEvidence(item.evidence_refs)"
+              v-for="{ item: evidence, label } in displayableEvidence(resolvedEvidence(item))"
               :key="evidence.evidence_id"
             >
               {{ label }}
@@ -1608,15 +1861,6 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <AnalysisItemDialog
-      v-if="analysisOpen"
-      :paper-id="paperId"
-      :item="editingAnalysisItem"
-      :busy="busy"
-      @close="analysisOpen = false"
-      @save="saveAnalysisItem"
-    />
-
     <NoteCandidateReviewDialog
       v-if="candidateReviewOpen && candidatePreview"
       :preview="candidatePreview"
@@ -1625,6 +1869,159 @@ onBeforeUnmount(() => {
       @refresh="refreshNoteCandidates"
       @import="importNoteCandidates"
     />
+
+    <div v-if="noteItemCreateOpen" class="modal-backdrop">
+      <section
+        class="question-dialog note-item-create-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="note-item-create-title"
+      >
+        <header>
+          <div>
+            <p class="eyebrow">可扩展模板项</p>
+            <h2 id="note-item-create-title">
+              添加{{ selectedCreateTemplate?.label ?? '可拓展条目' }}
+            </h2>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            aria-label="关闭"
+            @click="noteItemCreateOpen = false"
+          >
+            <X :size="20" />
+          </button>
+        </header>
+        <div class="question-form">
+          <label class="field">
+            <span>扩展位置</span>
+            <select
+              v-model="noteItemCreateForm.templateKey"
+              class="select-control"
+              @change="changeNoteItemCreateTemplate"
+            >
+              <option
+                v-for="template in noteItems?.item_templates"
+                :key="template.template_key"
+                :value="template.template_key"
+              >
+                {{ template.template_key }} · {{ template.label }}
+              </option>
+            </select>
+            <small>
+              {{ selectedCreateTemplate?.description }}
+            </small>
+          </label>
+          <label class="field">
+            <span>条目名称</span>
+            <input
+              v-model="noteItemCreateForm.title"
+              :placeholder="`例如：${selectedCreateTemplate?.label ?? '独立分析点'}`"
+            />
+          </label>
+          <label class="field">
+            <span>条目内容</span>
+            <textarea
+              v-model="noteItemCreateForm.markdown"
+              placeholder="可以先创建，再在条目主编辑区继续填写。"
+            />
+          </label>
+        </div>
+        <footer>
+          <span>保存后会插入模板对应位置，并立即在主编辑区打开。</span>
+          <div>
+            <button
+              class="button button--secondary"
+              type="button"
+              @click="noteItemCreateOpen = false"
+            >
+              取消
+            </button>
+            <button
+              class="button button--primary"
+              type="button"
+              :disabled="!canCreateNoteItem"
+              @click="createNoteItem"
+            >
+              {{ busy ? '保存中…' : '添加条目' }}
+            </button>
+          </div>
+        </footer>
+      </section>
+    </div>
+
+    <div v-if="evidenceOpen" class="modal-backdrop">
+      <section
+        class="question-dialog evidence-create-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="evidence-create-title"
+      >
+        <header>
+          <div>
+            <p class="eyebrow">论文证据目录</p>
+            <h2 id="evidence-create-title">添加证据</h2>
+          </div>
+          <button class="icon-button" type="button" aria-label="关闭" @click="evidenceOpen = false">
+            <X :size="20" />
+          </button>
+        </header>
+        <div class="question-form">
+          <label class="field">
+            <span>证据内容</span>
+            <textarea
+              v-model="evidenceForm.locatorNote"
+              placeholder="记录关键结论、数据、原文含义或限制。"
+            />
+          </label>
+          <div class="question-form-row">
+            <label class="field">
+              <span>类型</span>
+              <input v-model="evidenceForm.evidenceType" placeholder="背景 / 方法 / 结果 / 局限" />
+            </label>
+            <label class="field">
+              <span>印刷页码</span>
+              <input v-model="evidenceForm.pageLabel" placeholder="例如 12" />
+            </label>
+          </div>
+          <div class="question-form-row">
+            <label class="field">
+              <span>PDF 页序号</span>
+              <input v-model="evidenceForm.pdfPageIndex" type="number" min="1" />
+            </label>
+            <label class="field">
+              <span>章节</span>
+              <input v-model="evidenceForm.section" placeholder="例如 4.2 Evaluation" />
+            </label>
+          </div>
+          <div class="question-form-row">
+            <label class="field"><span>图号</span><input v-model="evidenceForm.figure" /></label>
+            <label class="field"><span>表号</span><input v-model="evidenceForm.table" /></label>
+          </div>
+          <label v-if="selectedNoteItem?.sync_status === 'synced'" class="checkbox-row">
+            <input v-model="evidenceForm.attachToCurrentItem" type="checkbox" />
+            <span>同时关联当前条目“{{ selectedNoteItem.label }}”</span>
+          </label>
+        </div>
+        <footer>
+          <span>系统自动分配 E-xxx 编号，并同步写入完整笔记的证据目录。</span>
+          <div>
+            <button class="button button--secondary" type="button" @click="evidenceOpen = false">
+              取消
+            </button>
+            <button
+              class="button button--primary"
+              type="button"
+              :disabled="busy || !evidenceForm.locatorNote.trim()"
+              @click="createEvidence"
+            >
+              {{ busy ? '保存中…' : '添加证据' }}
+            </button>
+          </div>
+        </footer>
+      </section>
+    </div>
 
     <div v-if="editOpen" class="modal-backdrop">
       <section
@@ -1648,6 +2045,10 @@ onBeforeUnmount(() => {
             <input v-model="editForm.title" />
           </label>
           <label class="field">
+            <span>论文简称</span>
+            <input v-model="editForm.shortTitle" />
+          </label>
+          <label class="field">
             <span>作者</span>
             <input v-model="editForm.authors" placeholder="用逗号分隔" />
           </label>
@@ -1657,6 +2058,23 @@ onBeforeUnmount(() => {
           </label>
           <label class="field"><span>发表载体</span><input v-model="editForm.venue" /></label>
           <label class="field"><span>论文分组</span><input v-model="editForm.group" /></label>
+          <label class="field">
+            <span>阅读状态</span>
+            <select v-model="editForm.readingStatus" class="select-control">
+              <option value="unread">未读</option>
+              <option value="skimmed">粗读</option>
+              <option value="deep_read">精读</option>
+              <option value="summarized">已总结</option>
+              <option value="reported">已汇报</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>重要程度</span>
+            <select v-model="editForm.importanceScore" class="select-control">
+              <option value="">未设置</option>
+              <option v-for="score in 5" :key="score" :value="String(score)">{{ score }}</option>
+            </select>
+          </label>
           <label class="field">
             <span>发表时间</span>
             <input v-model="editForm.publicationDate" type="date" />
@@ -1673,6 +2091,25 @@ onBeforeUnmount(() => {
           <label class="field metadata-field--wide">
             <span>关键词</span>
             <input v-model="editForm.keywords" placeholder="用逗号分隔" />
+          </label>
+          <label class="field metadata-field--wide">
+            <span>论文链接</span>
+            <input v-model="editForm.paperUrl" type="url" />
+          </label>
+          <label class="field">
+            <span>代码链接</span>
+            <input v-model="editForm.codeUrl" type="url" />
+          </label>
+          <label class="field">
+            <span>数据链接</span>
+            <input v-model="editForm.dataUrl" type="url" />
+          </label>
+          <label class="field metadata-field--wide">
+            <span>一句话总结</span>
+            <textarea
+              v-model="editForm.oneSentenceSummary"
+              placeholder="本文针对……问题，提出……方法，并在……环境中证明……"
+            />
           </label>
           <label class="field metadata-field--wide">
             <span>摘要</span>

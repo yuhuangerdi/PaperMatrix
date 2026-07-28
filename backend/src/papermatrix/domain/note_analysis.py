@@ -62,6 +62,7 @@ class CandidateImportResult(BaseModel):
 class NoteItemSource(BaseModel):
     item_id: UUID
     kind: AnalysisItemKind
+    display_label: str | None
     title: str
     section_key: str | None
     section_title: str | None
@@ -72,10 +73,44 @@ class NoteItemSource(BaseModel):
     is_favorite: bool
 
 
+class NoteItemTemplate(BaseModel):
+    template_key: str = Field(max_length=40)
+    chapter: int = Field(ge=1, le=8)
+    kind: AnalysisItemKind
+    label: str = Field(max_length=120)
+    description: str = Field(default="", max_length=300)
+    heading: str = Field(default="", max_length=300)
+    heading_level: Literal[2, 3, 4] = 3
+    repeatable: bool = False
+    child_heading_prefix: str = Field(default="", max_length=80)
+    insert_before_heading: str | None = Field(default=None, max_length=300)
+    body_template: str = Field(default="", max_length=20_000)
+
+
+class NoteItemSlot(BaseModel):
+    slot_key: str = Field(max_length=80)
+    template_key: str = Field(max_length=40)
+    kind: AnalysisItemKind
+    label: str = Field(max_length=120)
+    description: str = Field(default="", max_length=300)
+    section_title: str = Field(max_length=300)
+    markdown: str = Field(default="", max_length=200_000)
+    item_id: UUID | None = None
+    source_fingerprint: str | None = None
+    sync_status: Literal["empty", "synced", "review_required", "missing"]
+    is_favorite: bool = False
+    repeatable: bool = False
+    repeatable_template_key: str | None = Field(default=None, max_length=40)
+    can_delete: bool = False
+
+
 class NoteItemDocument(BaseModel):
     paper_id: UUID
     note_revision: int = Field(ge=0)
     paper_revision: int = Field(ge=1)
+    item_templates: list[NoteItemTemplate]
+    slots: list[NoteItemSlot]
+    evidence_catalog: list[EvidenceReference]
     items: list[NoteItemSource]
     candidates: list[NoteAnalysisCandidate]
     removals: list[NoteAnalysisRemoval] = Field(default_factory=list)
@@ -87,6 +122,20 @@ class NoteItemUpdateResult(BaseModel):
     note: PaperNote
     analysis: PaperAnalysisDocument
     item: AnalysisItem
+
+
+class NoteSlotUpdateResult(BaseModel):
+    note: PaperNote
+    analysis: PaperAnalysisDocument
+    slot: NoteItemSlot
+    item: AnalysisItem | None = None
+
+
+class EvidenceCreateResult(BaseModel):
+    note: PaperNote
+    analysis: PaperAnalysisDocument
+    evidence: EvidenceReference
+    item: AnalysisItem | None = None
 
 
 class NoteItemFavoriteUpdateResult(BaseModel):

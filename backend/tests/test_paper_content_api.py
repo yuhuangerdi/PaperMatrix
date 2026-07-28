@@ -59,6 +59,7 @@ def test_note_template_save_and_revision_conflict(tmp_path: Path) -> None:
     note_path = workspace_root / "projects" / project_id / "notes" / f"{paper_id}.md"
     persisted = note_path.read_text(encoding="utf-8")
     assert "revision: 2" in persisted
+    assert "template_version: 2" in persisted
     assert "# My note" in persisted
 
     stale = client.put(
@@ -68,6 +69,268 @@ def test_note_template_save_and_revision_conflict(tmp_path: Path) -> None:
     assert stale.status_code == 409
     assert stale.json()["error"]["code"] == "PM-CONFLICT-001"
     assert "stale overwrite" not in note_path.read_text(encoding="utf-8")
+
+
+def test_template_item_creation_and_inline_evidence_registration(tmp_path: Path) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    base = f"/api/v1/projects/{project_id}/papers/{paper_id}"
+    initial = client.get(f"{base}/note/items")
+    assert initial.status_code == 200
+    document = initial.json()
+    assert document["note_revision"] == 1
+    assert document["paper_revision"] == 1
+    assert [item["template_key"] for item in document["item_templates"]] == [
+        "2.2",
+        "4",
+        "5.innovation",
+    ]
+    assert len(document["slots"]) == 45
+    problem_slot = next(item for item in document["slots"] if item["template_key"] == "1.2")
+    assert problem_slot["sync_status"] == "empty"
+    assert problem_slot["markdown"] == ""
+    assert document["evidence_catalog"] == []
+
+    created = client.put(
+        f"{base}/note/slots/1.2",
+        json={
+            "markdown": "论文试图解决多阶段执行时上下文逐步丢失的问题。",
+            "expected_note_revision": 1,
+            "expected_paper_revision": 1,
+        },
+    )
+    assert created.status_code == 200
+    created_body = created.json()
+    item_id = created_body["item"]["item_id"]
+    assert created_body["item"]["kind"] == "research_problem"
+    assert created_body["slot"]["template_key"] == "1.2"
+    assert created_body["slot"]["sync_status"] == "synced"
+    assert created_body["note"]["markdown"].count("### 1.2 具体问题") == 1
+    assert "### 具体问题:" not in created_body["note"]["markdown"]
+    assert f"<!-- papermatrix:item:{item_id} -->" in created_body["note"]["markdown"]
+
+    evidence = client.post(
+        f"{base}/note/evidence",
+        json={
+            "item_id": item_id,
+            "evidence_type": "问题定义",
+            "page_label": "4",
+            "pdf_page_index": 5,
+            "section": "2.1 Problem Definition",
+            "figure": None,
+            "table": None,
+            "locator_note": "作者指出长任务会累积状态误差。",
+            "expected_note_revision": 2,
+            "expected_paper_revision": 2,
+        },
+    )
+    assert evidence.status_code == 201
+    evidence_body = evidence.json()
+    evidence_id = evidence_body["evidence"]["evidence_id"]
+    assert evidence_body["evidence"]["evidence_code"] == "E-001"
+    assert evidence_body["item"]["evidence_ids"] == [evidence_id]
+    assert "- 证据: E-001" in evidence_body["note"]["markdown"]
+    assert (
+        "| E-001 | 问题定义 | 作者指出长任务会累积状态误差。" in evidence_body["note"]["markdown"]
+    )
+
+    refreshed = client.get(f"{base}/note/items").json()
+    assert refreshed["evidence_catalog"][0]["locator_note"] == "作者指出长任务会累积状态误差。"
+    assert refreshed["items"][0]["sync_status"] == "synced"
+    refreshed_slot = next(item for item in refreshed["slots"] if item["template_key"] == "1.2")
+    assert refreshed_slot["sync_status"] == "synced"
+    assert "- 证据: E-001" in refreshed_slot["markdown"]
+
+
+def test_only_repeatable_template_group_can_add_independent_items(tmp_path: Path) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    base = f"/api/v1/projects/{project_id}/papers/{paper_id}"
+
+    fixed_rejected = client.post(
+        f"{base}/note/items",
+        json={
+            "template_key": "1.1",
+            "title": "不应追加",
+            "markdown": "固定项只能原位填写。",
+            "expected_note_revision": 1,
+            "expected_paper_revision": 1,
+        },
+    )
+    assert fixed_rejected.status_code == 422
+
+    created = client.post(
+        f"{base}/note/items",
+        json={
+            "template_key": "2.2",
+            "title": "PentestGPT",
+            "markdown": "- 主要思路：以推理模块指导渗透步骤。\n- 主要缺点：人工参与较多。",
+            "expected_note_revision": 1,
+            "expected_paper_revision": 1,
+        },
+    )
+
+    assert created.status_code == 201
+    payload = created.json()
+    item_id = payload["item"]["item_id"]
+    assert payload["item"]["kind"] == "related_work"
+    assert "#### PentestGPT" in payload["note"]["markdown"]
+    assert payload["note"]["markdown"].index("### 2.2 代表性顶会顶刊文献") < payload["note"][
+        "markdown"
+    ].index("#### PentestGPT")
+    refreshed = client.get(f"{base}/note/items").json()
+    slot = next(item for item in refreshed["slots"] if item["item_id"] == item_id)
+    assert slot["repeatable"] is True
+    assert slot["can_delete"] is True
+    assert slot["sync_status"] == "synced"
+
+
+def test_challenges_and_innovations_expand_at_their_template_positions(
+    tmp_path: Path,
+) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    base = f"/api/v1/projects/{project_id}/papers/{paper_id}"
+
+    challenge = client.post(
+        f"{base}/note/items",
+        json={
+            "template_key": "4",
+            "title": "跨回合状态污染",
+            "markdown": "",
+            "expected_note_revision": 1,
+            "expected_paper_revision": 1,
+        },
+    )
+    assert challenge.status_code == 201
+    challenge_body = challenge.json()
+    assert challenge_body["item"]["kind"] == "challenge"
+    assert "### 挑战: 跨回合状态污染" in challenge_body["note"]["markdown"]
+    assert challenge_body["note"]["markdown"].index("### 挑战 3") < challenge_body["note"][
+        "markdown"
+    ].index("### 挑战: 跨回合状态污染")
+    assert challenge_body["note"]["markdown"].index("### 挑战: 跨回合状态污染") < challenge_body[
+        "note"
+    ]["markdown"].index("## 5. 大致流程")
+
+    innovation = client.post(
+        f"{base}/note/items",
+        json={
+            "template_key": "5.innovation",
+            "title": "环境反馈闭环",
+            "markdown": "- 针对的挑战：长任务状态漂移",
+            "expected_note_revision": 2,
+            "expected_paper_revision": 2,
+        },
+    )
+    assert innovation.status_code == 201
+    innovation_body = innovation.json()
+    assert innovation_body["item"]["kind"] == "innovation"
+    assert "### 创新点: 环境反馈闭环" in innovation_body["note"]["markdown"]
+    assert innovation_body["note"]["markdown"].index("### 5.4 创新点 3") < innovation_body["note"][
+        "markdown"
+    ].index("### 创新点: 环境反馈闭环")
+    assert innovation_body["note"]["markdown"].index("### 创新点: 环境反馈闭环") < innovation_body[
+        "note"
+    ]["markdown"].index("### 5.5 附加贡献 +1")
+
+    refreshed = client.get(f"{base}/note/items").json()
+    challenge_slot = next(
+        item for item in refreshed["slots"] if item["item_id"] == challenge_body["item"]["item_id"]
+    )
+    innovation_slot = next(
+        item for item in refreshed["slots"] if item["item_id"] == innovation_body["item"]["item_id"]
+    )
+    assert challenge_slot["template_key"] == "4"
+    assert challenge_slot["label"] == "跨回合状态污染"
+    assert innovation_slot["template_key"] == "5.innovation"
+    assert innovation_slot["label"] == "环境反馈闭环"
+
+
+def test_clearing_fixed_slot_keeps_template_heading_and_removes_projection(
+    tmp_path: Path,
+) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/note/slots/1.1"
+    filled = client.put(
+        endpoint,
+        json={
+            "markdown": "真实网络中的长链任务需要持续维护状态。",
+            "expected_note_revision": 1,
+            "expected_paper_revision": 1,
+        },
+    )
+    assert filled.status_code == 200
+    cleared = client.put(
+        endpoint,
+        json={
+            "markdown": "",
+            "expected_note_revision": 2,
+            "expected_paper_revision": 2,
+        },
+    )
+
+    assert cleared.status_code == 200
+    payload = cleared.json()
+    assert payload["item"] is None
+    assert payload["slot"]["sync_status"] == "empty"
+    assert payload["analysis"]["items"] == []
+    assert payload["note"]["markdown"].count("### 1.1 研究背景") == 1
+
+
+def test_legacy_appended_fixed_item_is_offered_for_in_place_rehoming(
+    tmp_path: Path,
+) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    base = f"/api/v1/projects/{project_id}/papers/{paper_id}"
+    note = client.get(f"{base}/note").json()
+    legacy_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    legacy_fragment = (
+        f"\n\n<!-- papermatrix:item:{legacy_id} -->\n"
+        "### 研究背景: 历史追加标题\n\n"
+        "真实网络中的长链任务需要持续维护状态。\n"
+    )
+    legacy_markdown = note["markdown"].replace(
+        "\n---\n\n## 2.",
+        f"{legacy_fragment}\n---\n\n## 2.",
+        1,
+    )
+    saved = client.put(
+        f"{base}/note",
+        json={
+            "markdown": legacy_markdown,
+            "expected_revision": 1,
+        },
+    )
+    assert saved.status_code == 200
+    document = client.get(f"{base}/note/items").json()
+    candidate = next(item for item in document["candidates"] if item["candidate_id"] == legacy_id)
+    imported = client.post(
+        f"{base}/analysis/import-candidates",
+        json={
+            "candidate_ids": [candidate["candidate_id"]],
+            "removal_item_ids": [],
+            "expected_note_revision": 2,
+            "expected_paper_revision": 1,
+        },
+    )
+    assert imported.status_code == 200
+
+    slots = client.get(f"{base}/note/items").json()
+    background = next(item for item in slots["slots"] if item["template_key"] == "1.1")
+    assert background["sync_status"] == "review_required"
+    assert background["markdown"] == "真实网络中的长链任务需要持续维护状态。"
+
+    rehomed = client.put(
+        f"{base}/note/slots/1.1",
+        json={
+            "markdown": background["markdown"],
+            "expected_note_revision": 2,
+            "expected_paper_revision": 2,
+        },
+    )
+    assert rehomed.status_code == 200
+    updated = rehomed.json()
+    assert updated["item"]["item_id"] == legacy_id
+    assert "### 研究背景: 历史追加标题" not in updated["note"]["markdown"]
+    assert updated["note"]["markdown"].count("### 1.1 研究背景") == 1
 
 
 def test_persisted_default_note_does_not_expose_template_examples_as_candidates(
@@ -87,7 +350,9 @@ def test_persisted_default_note_does_not_expose_template_examples_as_candidates(
     item_document = client.get(f"/api/v1/projects/{project_id}/papers/{paper_id}/note/items").json()
     assert item_document["candidates"] == []
     assert item_document["pending_candidate_count"] == 0
-    assert item_document["warnings"] == ["没有找到已填写的结构化内容。"]
+    assert item_document["warnings"] == []
+    assert item_document["slots"]
+    assert all(item["sync_status"] == "empty" for item in item_document["slots"])
     assert list((workspace_root / "projects" / project_id / "notes").glob("*.md"))
 
 
@@ -138,18 +403,6 @@ def test_confirming_grouped_table_candidate_consolidates_legacy_row_items(
             "title": "规则工具",
             "summary": "旧版逐行投影",
             "attributes": {},
-            "evidence_refs": [
-                {
-                    "paper_id": paper_id,
-                    "page_label": "6",
-                    "pdf_page_index": 7,
-                    "section": "Related Work",
-                    "figure": None,
-                    "table": "Table 1",
-                    "locator_note": "方法分类",
-                    "source_item_id": None,
-                }
-            ],
             "tags": ["经典方法"],
             "writing_uses": ["RELATED"],
             "expected_revision": 1,
@@ -162,7 +415,6 @@ def test_confirming_grouped_table_candidate_consolidates_legacy_row_items(
             "title": "Agent",
             "summary": "旧版逐行投影",
             "attributes": {},
-            "evidence_refs": [],
             "tags": ["动态规划"],
             "writing_uses": ["METHOD"],
             "expected_revision": 2,
@@ -211,7 +463,7 @@ def test_confirming_grouped_table_candidate_consolidates_legacy_row_items(
     assert grouped["title"] == "现有方法分类"
     assert grouped["tags"] == ["经典方法", "动态规划"]
     assert grouped["writing_uses"] == ["RELATED", "METHOD"]
-    assert grouped["evidence_refs"][0]["table"] == "Table 1"
+    assert grouped["evidence_ids"] == []
     assert result["note"]["markdown"].count("papermatrix:item:") == 1
     assert first["item_id"] not in result["note"]["markdown"]
     assert second["item_id"] not in result["note"]["markdown"]
@@ -289,7 +541,6 @@ def test_question_create_answer_evidence_conflict_and_delete(tmp_path: Path) -> 
                     "figure": None,
                     "table": "Table 3",
                     "locator_note": "主结果",
-                    "source_item_id": None,
                 }
             ],
             "tags": ["experiment"],
@@ -354,21 +605,10 @@ def test_analysis_item_crud_evidence_and_revision_conflict(tmp_path: Path) -> No
         f"{endpoint}/items",
         json={
             "kind": "method",
+            "display_label": "恢复机制",
             "title": "Evidence-guided planning",
             "summary": "The planner links decisions to observations.",
             "attributes": {"architecture": "planner-executor"},
-            "evidence_refs": [
-                {
-                    "paper_id": "00000000-0000-4000-8000-000000000000",
-                    "page_label": "6",
-                    "pdf_page_index": 7,
-                    "section": "Method",
-                    "figure": "Figure 2",
-                    "table": None,
-                    "locator_note": "Architecture overview",
-                    "source_item_id": None,
-                }
-            ],
             "tags": ["agent", "agent"],
             "writing_uses": ["METHOD", "METHOD"],
             "expected_revision": 1,
@@ -378,19 +618,20 @@ def test_analysis_item_crud_evidence_and_revision_conflict(tmp_path: Path) -> No
     document = created.json()
     assert document["revision"] == 2
     item = document["items"][0]
+    assert item["display_label"] == "恢复机制"
     assert item["tags"] == ["agent"]
     assert item["writing_uses"] == ["METHOD"]
-    assert item["evidence_refs"][0]["paper_id"] == paper_id
+    assert item["evidence_ids"] == []
     item_id = item["item_id"]
 
     updated = client.patch(
         f"{endpoint}/items/{item_id}",
         json={
             "kind": "finding",
+            "display_label": "实验发现",
             "title": "Evidence improves recovery",
             "summary": "The ablation reports fewer unrecovered failures.",
             "attributes": {"metric": "recovery rate"},
-            "evidence_refs": [],
             "tags": ["result"],
             "writing_uses": ["DISCUSSION"],
             "expected_revision": 2,
@@ -399,6 +640,7 @@ def test_analysis_item_crud_evidence_and_revision_conflict(tmp_path: Path) -> No
     assert updated.status_code == 200
     assert updated.json()["revision"] == 3
     assert updated.json()["items"][0]["kind"] == "finding"
+    assert updated.json()["items"][0]["display_label"] == "实验发现"
 
     stale = client.patch(
         f"{endpoint}/items/{item_id}",
@@ -407,7 +649,6 @@ def test_analysis_item_crud_evidence_and_revision_conflict(tmp_path: Path) -> No
             "title": "Stale overwrite",
             "summary": "",
             "attributes": {},
-            "evidence_refs": [],
             "tags": [],
             "writing_uses": [],
             "expected_revision": 2,
@@ -420,6 +661,58 @@ def test_analysis_item_crud_evidence_and_revision_conflict(tmp_path: Path) -> No
     assert deleted.status_code == 200
     assert deleted.json()["revision"] == 4
     assert deleted.json()["items"] == []
+
+
+def test_candidate_import_registers_evidence_and_the_item_references_its_id(
+    tmp_path: Path,
+) -> None:
+    client, _, project_id, paper_id = initialized_paper(tmp_path)
+    note_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/note"
+    analysis_endpoint = f"/api/v1/projects/{project_id}/papers/{paper_id}/analysis"
+    markdown = """## 3. 本文解决思路和整体框架
+### 3.1 核心思路
+使用检查点恢复失败任务。
+- 证据：E-001
+
+## 11. 关键证据与页码定位
+| 证据 ID | 类型 | 观点或证据 | 印刷页码 | PDF 页序号 | 图/表 | 备注 |
+|---|---|---|---|---:|---|---|
+| E-001 | 方法 | 检查点保存与恢复流程 | 6 | 7 | 图 2 | 架构图 |
+"""
+    saved = client.put(note_endpoint, json={"markdown": markdown, "expected_revision": 1})
+    assert saved.status_code == 200
+    preview = client.post(f"{analysis_endpoint}/parse-note").json()
+    candidate = preview["candidates"][0]
+    assert candidate["evidence_refs"][0]["evidence_code"] == "E-001"
+
+    imported = client.post(
+        f"{analysis_endpoint}/import-candidates",
+        json={
+            "candidate_ids": [candidate["candidate_id"]],
+            "expected_note_revision": 2,
+            "expected_paper_revision": 1,
+        },
+    )
+
+    assert imported.status_code == 200
+    document = imported.json()["analysis"]
+    assert document["evidence_catalog"][0]["evidence_code"] == "E-001"
+    assert document["items"][0]["evidence_ids"] == [document["evidence_catalog"][0]["evidence_id"]]
+
+    implicit_reference = client.post(
+        f"{analysis_endpoint}/items",
+        json={
+            "kind": "method",
+            "title": "不能隐式关联",
+            "summary": "",
+            "attributes": {},
+            "evidence_ids": [document["evidence_catalog"][0]["evidence_id"]],
+            "tags": [],
+            "writing_uses": [],
+            "expected_revision": document["revision"],
+        },
+    )
+    assert implicit_reference.status_code == 422
 
 
 def test_note_item_favorite_is_revision_safe_and_survives_markdown_synchronization(

@@ -85,6 +85,7 @@ def test_scan_import_duplicate_status_and_metadata_only_delete(tmp_path: Path) -
         f"/api/v1/projects/{project_id}/papers/{paper['paper_id']}",
         json={
             "title": "Reliable Agent Evaluation",
+            "short_title": "ReliableAgent",
             "authors": ["Researcher"],
             "affiliations": ["Xidian University"],
             "venue": "USENIX Security",
@@ -94,17 +95,30 @@ def test_scan_import_duplicate_status_and_metadata_only_delete(tmp_path: Path) -
             "language": "en",
             "keywords": ["agent", "security"],
             "abstract_text": "Evaluation of agent reliability.",
+            "urls": ["https://example.com/paper"],
+            "code_url": "https://example.com/code",
+            "data_url": "https://example.com/data",
             "group": "核心文献",
+            "reading_status": "deep_read",
+            "importance_score": 5,
+            "one_sentence_summary": "本文评估 Agent 的可靠性。",
             "expected_revision": 1,
         },
     )
     assert updated.status_code == 200
     assert updated.json()["bibliography"]["affiliations"] == ["Xidian University"]
     assert updated.json()["organization"]["group"] == "核心文献"
+    assert updated.json()["organization"]["reading_status"] == "deep_read"
+    assert updated.json()["bibliography"]["code_url"] == "https://example.com/code"
     assert updated.json()["revision"] == 2
     note_after_metadata_edit = client.get(note_endpoint).json()
-    assert note_after_metadata_edit == initial_note
-    assert "Xidian University" not in note_after_metadata_edit["markdown"]
+    assert note_after_metadata_edit["revision"] == 2
+    assert "# ReliableAgent" in note_after_metadata_edit["markdown"]
+    assert "- 署名单位：Xidian University" in note_after_metadata_edit["markdown"]
+    assert "- 摘要：Evaluation of agent reliability." in note_after_metadata_edit["markdown"]
+    assert "- 阅读状态：精读" in note_after_metadata_edit["markdown"]
+    assert "- 重要程度：5" in note_after_metadata_edit["markdown"]
+    assert "- 论文链接：https://example.com/paper" in note_after_metadata_edit["markdown"]
 
     duplicate = client.post(f"/api/v1/projects/{project_id}/papers/import", json=payload)
     assert duplicate.status_code == 201
